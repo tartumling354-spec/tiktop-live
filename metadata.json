@@ -1,0 +1,6 @@
+{
+  "name": "TikTop Live Streaming",
+  "description": "TikTop - Interactive Live Streaming platform with Face Live and Party Live modes, real-time camera streaming, live chat, and virtual gifts.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

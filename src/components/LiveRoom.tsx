@@ -1,0 +1,1194 @@
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  X,
+  Mic,
+  MicOff,
+  Video,
+  VideoOff,
+  Sparkles,
+  Gift as GiftIcon,
+  Heart,
+  Send,
+  Users,
+  Swords,
+  Share2,
+  Volume2,
+  VolumeX,
+  Award,
+} from 'lucide-react';
+import { LiveMode, VideoFilter, ChatMessage, Gift, PartySeat, PartySeatCount, UserProfile } from '../types';
+import { LiveCameraStream } from './LiveCameraStream';
+import { PartyGrid } from './PartyGrid';
+import { GiftTray } from './GiftTray';
+import { FilterSelector } from './FilterSelector';
+import { GiftEffectOverlay } from './GiftEffectOverlay';
+import { FloatingHearts } from './FloatingHearts';
+import { StreamSummaryModal } from './StreamSummaryModal';
+import { CountdownOverlay } from './CountdownOverlay';
+import { LiveRewardCelebrationModal } from './LiveRewardCelebrationModal';
+import { LiveRewardRulesModal } from './LiveRewardRulesModal';
+import { INITIAL_PARTY_SEATS, generatePartySeats, assignUserToSeat } from '../data/mockData';
+
+interface LiveRoomProps {
+  mode: LiveMode;
+  roomTitle: string;
+  roomCategory: string;
+  onExit: () => void;
+  userCoins?: number;
+  userDiamonds?: number;
+  userPoints?: number;
+  onUpdateCoins?: (newAmount: number) => void;
+  onUpdateDiamonds?: (newAmount: number) => void;
+  onUpdatePoints?: (newAmount: number) => void;
+  onAddPoints?: (amount: number) => void;
+  onOpenRechargeCoins?: () => void;
+  showCountdown?: boolean;
+  initialSeatCount?: PartySeatCount;
+  isHostStreamer?: boolean;
+  userProfile?: UserProfile;
+}
+
+const SAMPLE_FAN_NAMES = ['Aayush', 'Smriti', 'Bipin_07', 'Kritika_K', 'Rohan', 'Sneha', 'Nirav', 'Pooja'];
+const SAMPLE_FAN_AVATARS = [
+  'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&auto=format&fit=crop&q=80',
+];
+
+const SAMPLE_COMMENTS = [
+  'Welcome to the live! 👋',
+  'Namaste everyone! 🙏',
+  'Sound and video quality are super clear! ✨',
+  'Love this vibe! Keep it going 🔥',
+  'Sent a heart! ❤️❤️❤️',
+  'Who else is here from Nepal? 🇳🇵',
+  'Great energy today! 👏',
+  'Party vibes are real! 🎶',
+];
+
+export const LiveRoom: React.FC<LiveRoomProps> = ({
+  mode,
+  roomTitle,
+  roomCategory,
+  onExit,
+  userCoins,
+  userDiamonds = 350,
+  userPoints = 0,
+  onUpdateCoins,
+  onUpdateDiamonds,
+  onUpdatePoints,
+  onAddPoints,
+  onOpenRechargeCoins,
+  showCountdown = true,
+  initialSeatCount = 6 as PartySeatCount,
+  isHostStreamer = true,
+  userProfile,
+}) => {
+  const coinsBalance = userCoins !== undefined ? userCoins : userDiamonds;
+  // 3-2-1 Countdown state
+  const [isCountdownActive, setIsCountdownActive] = useState<boolean>(showCountdown);
+
+  // Live Room Hardware and Visual State
+  const [isCameraOn, setIsCameraOn] = useState<boolean>(true);
+  const [isMicOn, setIsMicOn] = useState<boolean>(true);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
+  const [filter, setFilter] = useState<VideoFilter>('none');
+  const [isPartyAudioActive, setIsPartyAudioActive] = useState<boolean>(true);
+
+  // Audience & Activity State
+  const [viewersCount, setViewersCount] = useState<number>(mode === 'party' ? 840 : 520);
+  const [likesCount, setLikesCount] = useState<number>(142);
+  const [diamondsEarned, setDiamondsEarned] = useState<number>(0);
+
+  // Dynamic Party Seater Count & Seats (4, 6, 9, 16, 25 Seats)
+  const [partySeatCount, setPartySeatCount] = useState<PartySeatCount>(initialSeatCount);
+  const [partySeats, setPartySeats] = useState<PartySeat[]>(() =>
+    generatePartySeats(initialSeatCount)
+  );
+  const [heartTrigger, setHeartTrigger] = useState<number>(0);
+
+  // PK Battle State for Party Mode
+  const [isPkActive, setIsPkActive] = useState<boolean>(false);
+  const [pkBlueScore, setPkBlueScore] = useState<number>(180);
+  const [pkRedScore, setPkRedScore] = useState<number>(140);
+  const [pkTimeLeft, setPkTimeLeft] = useState<number>(60);
+
+  // Dialogs & Sheets
+  const [isGiftTrayOpen, setIsGiftTrayOpen] = useState<boolean>(false);
+  const [isFilterSheetOpen, setIsFilterSheetOpen] = useState<boolean>(false);
+  const [activeGiftAnimation, setActiveGiftAnimation] = useState<{
+    id: string;
+    senderName: string;
+    gift: Gift;
+  } | null>(null);
+  const [showExitConfirm, setShowExitConfirm] = useState<boolean>(false);
+  const [showSummary, setShowSummary] = useState<boolean>(false);
+  const [streamDuration, setStreamDuration] = useState<number>(0);
+
+  // Live Duration Rewards State & Tracking
+  // Rule: Face Live 1 hr -> 10,000 pts, 2 hr -> 10,000 pts (capped at 2 hr, max 20,000 pts)
+  // Rule: Party Live 1 hr -> 2,000 pts, 2 hr -> 2,000 pts (capped at 2 hr, max 4,000 pts)
+  // After cap, live stream can continue unlimited without further rewards!
+  const [claimedMilestones, setClaimedMilestones] = useState<{
+    faceHour1: boolean;
+    faceHour2: boolean;
+    partyHour1: boolean;
+    partyHour2: boolean;
+  }>({
+    faceHour1: false,
+    faceHour2: false,
+    partyHour1: false,
+    partyHour2: false,
+  });
+
+  const [liveDurationRewardPoints, setLiveDurationRewardPoints] = useState<number>(0);
+  const [isRewardRulesOpen, setIsRewardRulesOpen] = useState<boolean>(false);
+  const [activeRewardAlert, setActiveRewardAlert] = useState<{
+    points: number;
+    title: string;
+    titleNep: string;
+    description: string;
+    isCapReached: boolean;
+  } | null>(null);
+
+  // User diamonds ref to avoid stale closures during milestone payouts
+  const userDiamondsRef = useRef(userDiamonds);
+  useEffect(() => {
+    userDiamondsRef.current = userDiamonds;
+  }, [userDiamonds]);
+
+  // Audio chime for celebratory milestone rewards
+  const playCelebrationChime = () => {
+    try {
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const notes = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
+      notes.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.12);
+        gain.gain.setValueAtTime(0, ctx.currentTime + idx * 0.12);
+        gain.gain.linearRampToValueAtTime(0.25, ctx.currentTime + idx * 0.12 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.12 + 0.38);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime + idx * 0.12);
+        osc.stop(ctx.currentTime + idx * 0.12 + 0.4);
+      });
+    } catch {
+      // Audio playback allowed on user interaction
+    }
+  };
+
+  // Chat stream
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
+    {
+      id: 'm1',
+      user: 'TikTop System',
+      avatar: '',
+      text: `Live broadcast ready! Mode: ${mode === 'face' ? 'Face Live' : 'Party Live'}. Welcome viewers!`,
+      type: 'system',
+      timestamp: 'Just now',
+    },
+    {
+      id: 'm2',
+      user: 'Aayush',
+      avatar: SAMPLE_FAN_AVATARS[0],
+      text: 'Hey! Glad you are live! 💖',
+      type: 'normal',
+      timestamp: 'Just now',
+    },
+  ]);
+  const [commentInput, setCommentInput] = useState<string>('');
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+
+  // Countdown completion handler
+  const handleCountdownComplete = () => {
+    setIsCountdownActive(false);
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: `start-${Date.now()}`,
+        user: 'TikTop Broadcast Studio',
+        avatar: '',
+        text: '🔴 YOU ARE NOW LIVE! 3-2-1 countdown completed. Welcome your audience! 🎉',
+        type: 'system',
+        timestamp: 'Just now',
+      },
+    ]);
+  };
+
+  // Stream Duration Timer (starts only when 3-2-1 countdown finishes)
+  useEffect(() => {
+    if (isCountdownActive) return;
+    const timer = setInterval(() => {
+      setStreamDuration((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isCountdownActive]);
+
+  // Live Duration Rewards Evaluation (Strict User Request Compliance):
+  // 1) Face Live:
+  //    - At 1 Hour (3600s): Host receives 10,000 Points
+  //    - At 2 Hours (7200s): Host receives another 10,000 Points (Total: 20,000 Points Max Cap)
+  // 2) Party Live:
+  //    - At 1 Hour (3600s): Host receives 2,000 Points
+  //    - At 2 Hours (7200s): Host receives another 2,000 Points (Total: 4,000 Points Max Cap)
+  // After 2 hours cap, live stream can continue indefinitely without additional rewards!
+  useEffect(() => {
+    if (isCountdownActive) return;
+
+    if (mode === 'face') {
+      // Milestone 1: 1 Hour Face Live (3600s) -> 10,000 points
+      if (streamDuration >= 3600 && !claimedMilestones.faceHour1) {
+        setClaimedMilestones((prev) => ({ ...prev, faceHour1: true }));
+        const pts = 10000;
+        if (onAddPoints) onAddPoints(pts);
+        if (onUpdateDiamonds) onUpdateDiamonds(userDiamondsRef.current + pts);
+        setDiamondsEarned((prev) => prev + pts);
+        setLiveDurationRewardPoints((prev) => prev + pts);
+        playCelebrationChime();
+
+        setActiveRewardAlert({
+          points: pts,
+          title: '1 Hour Face Live Milestone Completed!',
+          titleNep: '🎉 १ घण्टा Face Live पूरा भयो!',
+          description:
+            'बधाई छ! १ घण्टा Face Live पूरा भए बापत १०,००० Points प्राप्त भयो। अर्को १ घण्टा (कुल २ घण्टा) पूरा गरेपछि फेरि १०,००० Points थपिनेछ!',
+          isCapReached: false,
+        });
+
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            id: `reward-face-1h-${Date.now()}`,
+            user: 'TikTop Rewards System',
+            avatar: '',
+            text: '🏆 बधाई छ! Host ले १ घण्टा Face Live पूरा गरेर १०,००० Points प्राप्त गर्नुभयो! 🎉',
+            type: 'system',
+            timestamp: 'Just now',
+          },
+        ]);
+      }
+
+      // Milestone 2: 2 Hours Face Live (7200s) -> 10,000 points (Total 20,000, Max Cap)
+      if (streamDuration >= 7200 && !claimedMilestones.faceHour2) {
+        setClaimedMilestones((prev) => ({ ...prev, faceHour2: true }));
+        const pts = 10000;
+        if (onAddPoints) onAddPoints(pts);
+        if (onUpdateDiamonds) onUpdateDiamonds(userDiamondsRef.current + pts);
+        setDiamondsEarned((prev) => prev + pts);
+        setLiveDurationRewardPoints((prev) => prev + pts);
+        playCelebrationChime();
+
+        setActiveRewardAlert({
+          points: pts,
+          title: '2 Hours Face Live Milestone Completed (Max Cap)!',
+          titleNep: '🏆 २ घण्टा Face Live पूरा भयो!',
+          description:
+            'बधाई छ! २ घण्टा पूरा भए बापत थप १०,००० Points (कुल २०,००० Points) प्राप्त भयो। २ घण्टा सम्म मात्र रिवार्ड दिइने हुनाले अधिकतम सीमा पूरा भयो। अब थप पोइन्ट दिइने छैन तर तपाईं जति समय पनि निरन्तर लाइभ बस्न सक्नुहुन्छ!',
+          isCapReached: true,
+        });
+
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            id: `reward-face-2h-${Date.now()}`,
+            user: 'TikTop Rewards System',
+            avatar: '',
+            text: '🏆 अद्भुत! Host ले २ घण्टा Face Live पूरा गरेर थप १०,००० Points (कुल २०,००० Points) प्राप्त गर्नुभयो! अधिकतम रिवार्ड सीमा पूरा भयो। 🎉',
+            type: 'system',
+            timestamp: 'Just now',
+          },
+        ]);
+      }
+    } else {
+      // Party Live: Milestone 1: 1 Hour (3600s) -> 2,000 points
+      if (streamDuration >= 3600 && !claimedMilestones.partyHour1) {
+        setClaimedMilestones((prev) => ({ ...prev, partyHour1: true }));
+        const pts = 2000;
+        if (onAddPoints) onAddPoints(pts);
+        if (onUpdateDiamonds) onUpdateDiamonds(userDiamondsRef.current + pts);
+        setDiamondsEarned((prev) => prev + pts);
+        setLiveDurationRewardPoints((prev) => prev + pts);
+        playCelebrationChime();
+
+        setActiveRewardAlert({
+          points: pts,
+          title: '1 Hour Party Live Milestone Completed!',
+          titleNep: '🎉 १ घण्टा Party Live पूरा भयो!',
+          description:
+            'बधाई छ! Party Live १ घण्टा पूरा भए बापत २,००० Points प्राप्त भयो। अर्को १ घण्टा (कुल २ घण्टा) पूरा गरेपछि फेरि २,००० Points थपिनेछ!',
+          isCapReached: false,
+        });
+
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            id: `reward-party-1h-${Date.now()}`,
+            user: 'TikTop Rewards System',
+            avatar: '',
+            text: '🏆 बधाई छ! Host ले १ घण्टा Party Live पूरा गरेर २,००० Points प्राप्त गर्नुभयो! 🎉',
+            type: 'system',
+            timestamp: 'Just now',
+          },
+        ]);
+      }
+
+      // Party Live: Milestone 2: 2 Hours (7200s) -> 2,000 points (Total 4,000 Points, Max Cap)
+      if (streamDuration >= 7200 && !claimedMilestones.partyHour2) {
+        setClaimedMilestones((prev) => ({ ...prev, partyHour2: true }));
+        const pts = 2000;
+        if (onAddPoints) onAddPoints(pts);
+        if (onUpdateDiamonds) onUpdateDiamonds(userDiamondsRef.current + pts);
+        setDiamondsEarned((prev) => prev + pts);
+        setLiveDurationRewardPoints((prev) => prev + pts);
+        playCelebrationChime();
+
+        setActiveRewardAlert({
+          points: pts,
+          title: '2 Hours Party Live Milestone Completed (Max Cap)!',
+          titleNep: '🏆 २ घण्टा Party Live पूरा भयो!',
+          description:
+            'बधाई छ! Party Live २ घण्टा पूरा भए बापत फेरि २,००० Points (कुल ४,००० Points) प्राप्त भयो। २ घण्टा सम्म मात्र रिवार्ड दिइने हुनाले Party Live को अधिकतम सीमा पूरा भयो। अब थप पोइन्ट दिइने छैन तर साथीहरूसँग जति समय पनि पार्टी च्याट गर्न सक्नुहुन्छ!',
+          isCapReached: true,
+        });
+
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            id: `reward-party-2h-${Date.now()}`,
+            user: 'TikTop Rewards System',
+            avatar: '',
+            text: '🏆 अद्भुत! Host ले २ घण्टा Party Live पूरा गरेर फेरि २,००० Points (कुल ४,००० Points) प्राप्त गर्नुभयो! Party Live को अधिकतम रिवार्ड पूरा भयो। 🎉',
+            type: 'system',
+            timestamp: 'Just now',
+          },
+        ]);
+      }
+    }
+  }, [streamDuration, mode, isCountdownActive, claimedMilestones, onUpdateDiamonds, onAddPoints]);
+
+  // Periodic Viewer Fluctuations & Simulated Fan Activity
+  useEffect(() => {
+    const viewerInterval = setInterval(() => {
+      setViewersCount((prev) => Math.max(12, prev + Math.floor(Math.random() * 7) - 3));
+    }, 4000);
+
+    const chatInterval = setInterval(() => {
+      const randomFan = SAMPLE_FAN_NAMES[Math.floor(Math.random() * SAMPLE_FAN_NAMES.length)];
+      const randomAvatar = SAMPLE_FAN_AVATARS[Math.floor(Math.random() * SAMPLE_FAN_AVATARS.length)];
+      const randomComment = SAMPLE_COMMENTS[Math.floor(Math.random() * SAMPLE_COMMENTS.length)];
+
+      const newMsg: ChatMessage = {
+        id: `fan-${Date.now()}`,
+        user: randomFan,
+        avatar: randomAvatar,
+        text: randomComment,
+        type: 'normal',
+        timestamp: 'Just now',
+      };
+
+      setChatMessages((prev) => [...prev.slice(-40), newMsg]);
+      setLikesCount((prev) => prev + Math.floor(Math.random() * 3) + 1);
+    }, 5500);
+
+    return () => {
+      clearInterval(viewerInterval);
+      clearInterval(chatInterval);
+    };
+  }, []);
+
+  // PK Timer when PK is active
+  useEffect(() => {
+    if (!isPkActive) return;
+
+    const timer = setInterval(() => {
+      setPkTimeLeft((prev) => {
+        if (prev <= 1) {
+          setIsPkActive(false);
+          return 60;
+        }
+        return prev - 1;
+      });
+
+      // Random PK score changes
+      if (Math.random() > 0.4) {
+        setPkBlueScore((prev) => prev + Math.floor(Math.random() * 10));
+      } else {
+        setPkRedScore((prev) => prev + Math.floor(Math.random() * 10));
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [isPkActive]);
+
+  // Auto-scroll chat to bottom
+  useEffect(() => {
+    if (chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }
+  }, [chatMessages]);
+
+  // Send user message
+  const handleSendMessage = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!commentInput.trim()) return;
+
+    const newMsg: ChatMessage = {
+      id: `usr-${Date.now()}`,
+      user: 'You (Host)',
+      avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
+      text: commentInput.trim(),
+      type: 'normal',
+      badge: 'HOST',
+      timestamp: 'Just now',
+    };
+
+    setChatMessages((prev) => [...prev, newMsg]);
+    setCommentInput('');
+  };
+
+  // Like Heart tap
+  const handleLikeTap = () => {
+    setLikesCount((prev) => prev + 1);
+    setHeartTrigger((prev) => prev + 1);
+  };
+
+  // Send Gift (Costs Coins, Host earns Points)
+  const handleSendGift = (gift: Gift) => {
+    const cost = gift.coins ?? gift.diamonds;
+    if (coinsBalance < cost) {
+      if (onOpenRechargeCoins) {
+        onOpenRechargeCoins();
+      } else {
+        alert(`पर्याप्त सिक्का (Coins) छैन! तपाईंसँग ${coinsBalance} Coins छ, तर ${cost} चाहिन्छ। कृपया Coins रिचार्ज गर्नुहोस्!`);
+      }
+      return;
+    }
+
+    if (onUpdateCoins) {
+      onUpdateCoins(coinsBalance - cost);
+    } else if (onUpdateDiamonds) {
+      onUpdateDiamonds(coinsBalance - cost);
+    }
+
+    // Host accumulates Points for all gift rewards
+    if (onAddPoints) {
+      onAddPoints(cost);
+    }
+    setDiamondsEarned((prev) => prev + cost);
+
+    const giftMsg: ChatMessage = {
+      id: `gift-${Date.now()}`,
+      user: 'You',
+      avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
+      text: `sent ${gift.name} ${gift.icon}`,
+      type: 'gift',
+      giftName: gift.name,
+      giftIcon: gift.icon,
+      timestamp: 'Just now',
+    };
+    setChatMessages((prev) => [...prev, giftMsg]);
+
+    setActiveGiftAnimation({
+      id: `anim-${Date.now()}`,
+      senderName: 'You',
+      gift,
+    });
+    setIsGiftTrayOpen(false);
+  };
+
+  // Party Seat Actions & Seater Switcher (4, 6, 9, 16, 25 Seats)
+  const handleChangeSeatCount = (count: PartySeatCount) => {
+    setPartySeatCount(count);
+    setPartySeats((prev) => generatePartySeats(count, prev));
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: `seat-cnt-${Date.now()}`,
+        user: 'TikTop Party',
+        avatar: '',
+        text: `Party layout switched to ${count} Seats (${count} सिट स्टेज)`,
+        type: 'system',
+        timestamp: 'Just now',
+      },
+    ]);
+  };
+
+  /**
+   * Take a seat with STRICT single-seat occupancy:
+   * 'ek byakti ek mattra seat ma basna milnu parxa' (One person can only occupy ONE seat at a time).
+   */
+  const handleTakeSeat = (seatNumber: number) => {
+    const previousUserSeat = partySeats.find((s) => s.isOccupied && s.userName?.includes('You'));
+
+    // assignUserToSeat automatically removes 'You' from any previous seat!
+    const updated = assignUserToSeat(partySeats, seatNumber, {
+      userName: isHostStreamer ? `${userProfile?.name || 'You'} (Host)` : (userProfile?.name || 'You'),
+      userAvatar: userProfile?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
+      isHost: isHostStreamer,
+      isVideoOn: isCameraOn,
+    });
+
+    setPartySeats(updated);
+
+    if (previousUserSeat && previousUserSeat.seatNumber !== seatNumber) {
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: `move-${Date.now()}`,
+          user: 'TikTop Party',
+          avatar: '',
+          text: `You moved to Seat #${seatNumber} (Seat #${previousUserSeat.seatNumber} is now free)! 🎙️`,
+          type: 'system',
+          timestamp: 'Just now',
+        },
+      ]);
+    } else {
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: `seat-${Date.now()}`,
+          user: 'TikTop Party',
+          avatar: '',
+          text: `You joined Seat #${seatNumber}! 🎙️`,
+          type: 'system',
+          timestamp: 'Just now',
+        },
+      ]);
+    }
+  };
+
+  const handleLeaveSeat = (seatNumber: number) => {
+    setPartySeats((prev) =>
+      prev.map((s) =>
+        s.seatNumber === seatNumber
+          ? {
+              ...s,
+              isOccupied: false,
+              userName: undefined,
+              userAvatar: undefined,
+              isHost: false,
+              isSpeaking: false,
+              isMuted: false,
+              isVideoOn: false,
+              videoUrl: undefined,
+            }
+          : s
+      )
+    );
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: `leave-${Date.now()}`,
+        user: 'TikTop Party',
+        avatar: '',
+        text: `You left Seat #${seatNumber}.`,
+        type: 'system',
+        timestamp: 'Just now',
+      },
+    ]);
+  };
+
+  const handleToggleSeatMic = (seatNumber: number) => {
+    setPartySeats((prev) =>
+      prev.map((s) => {
+        if (s.seatNumber === seatNumber) {
+          const nextMuted = !s.isMuted;
+          if (s.userName?.includes('You')) {
+            setIsMicOn(!nextMuted);
+          }
+          return { ...s, isMuted: nextMuted };
+        }
+        return s;
+      })
+    );
+  };
+
+  const handleToggleSeatVideo = (seatNumber: number) => {
+    setPartySeats((prev) =>
+      prev.map((s) => {
+        if (s.seatNumber === seatNumber) {
+          const nextVideo = !s.isVideoOn;
+          if (s.userName?.includes('You')) {
+            setIsCameraOn(nextVideo);
+          }
+          return { ...s, isVideoOn: nextVideo };
+        }
+        return s;
+      })
+    );
+  };
+
+  // Format Duration string (supports hh:mm:ss for longer streams)
+  const formatTime = (secs: number) => {
+    const hrs = Math.floor(secs / 3600);
+    const mins = Math.floor((secs % 3600) / 60);
+    const remainder = secs % 60;
+    if (hrs > 0) {
+      return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${remainder.toString().padStart(2, '0')}`;
+    }
+    return `${mins.toString().padStart(2, '0')}:${remainder.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <div
+      id="live-room-wrapper"
+      className="relative w-full h-[100dvh] max-w-md mx-auto bg-black text-white flex flex-col justify-between overflow-hidden select-none shadow-2xl"
+    >
+      {/* Background Feed: Face Live = Full Screen Video, Party Live = Ambient Stage Backdrop (Camera only inside seat box) */}
+      {mode === 'face' ? (
+        <div className="absolute inset-0 z-0">
+          <LiveCameraStream
+            isCameraOn={isCameraOn}
+            isMicOn={isMicOn}
+            facingMode={facingMode}
+            filter={filter}
+            onToggleFacingMode={() =>
+              setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'))
+            }
+            streamerName={userProfile?.name || 'You (Host)'}
+            isHost={true}
+          />
+        </div>
+      ) : (
+        <div className="absolute inset-0 z-0 bg-gradient-to-b from-neutral-950 via-slate-950 to-neutral-950 overflow-hidden">
+          {/* Ambient stage lights for Party Room */}
+          <div className="absolute top-1/6 left-1/2 -translate-x-1/2 w-96 h-96 bg-indigo-600/15 rounded-full blur-3xl pointer-events-none animate-pulse" />
+          <div className="absolute bottom-1/4 left-10 w-64 h-64 bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute bottom-1/3 right-10 w-64 h-64 bg-rose-600/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff06_1px,transparent_1px),linear-gradient(to_bottom,#ffffff06_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none" />
+        </div>
+      )}
+
+      {/* Dark scrims for UI legibility */}
+      <div className="absolute inset-0 pointer-events-none z-10 bg-gradient-to-b from-black/70 via-transparent to-black/85" />
+
+      {/* ================= TOP HEADER ================= */}
+      <div id="live-room-topbar" className="relative z-20 px-3 pt-3 flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          {/* Streamer info pill */}
+          <div className="flex items-center gap-2 bg-black/45 backdrop-blur-md rounded-full pl-1 pr-3 py-1 border border-white/10 shadow-lg">
+            <div className="relative w-8 h-8 rounded-full overflow-hidden border border-rose-500">
+              <img
+                src={userProfile?.avatar || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80"}
+                alt="Host avatar"
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover"
+              />
+            </div>
+            <div className="flex flex-col">
+              <div className="flex items-center gap-1">
+                <span className="text-xs font-bold truncate max-w-[90px]">{userProfile?.name || 'You (Host)'}</span>
+                <span className="bg-rose-500 text-[9px] font-extrabold px-1 rounded-sm uppercase tracking-tight">
+                  LIVE
+                </span>
+              </div>
+              <span className="text-[10px] text-white/70">{formatTime(streamDuration)}</span>
+            </div>
+          </div>
+
+          {/* Mode & Category Pill */}
+          <div className="flex items-center gap-1.5">
+            <span
+              className={`text-[11px] font-bold px-2.5 py-1 rounded-full shadow-md border ${
+                mode === 'face'
+                  ? 'bg-rose-600/80 border-rose-400/40 text-rose-100'
+                  : 'bg-indigo-600/80 border-indigo-400/40 text-indigo-100'
+              }`}
+            >
+              {mode === 'face' ? '👤 Face Live' : '🎉 Party Live'}
+            </span>
+
+            {/* Viewers Pill */}
+            <div className="flex items-center gap-1 bg-black/45 backdrop-blur-md rounded-full px-2.5 py-1 border border-white/10 text-xs font-semibold">
+              <Users size={12} className="text-emerald-400" />
+              <span>{viewersCount.toLocaleString()}</span>
+            </div>
+
+            {/* Safe End Live Button */}
+            <button
+              type="button"
+              id="btn-end-live-stream"
+              onClick={() => setShowExitConfirm(true)}
+              className="w-8 h-8 rounded-full bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center transition-all shadow-md active:scale-95 ml-1"
+              title="End Stream"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Room Title and Diamonds Counter Bar */}
+        <div className="flex items-center justify-between text-xs px-1">
+          <div className="flex items-center gap-1.5 truncate max-w-[200px]">
+            <span className="bg-white/10 backdrop-blur-md px-2 py-0.5 rounded text-[11px] font-medium text-white/90 truncate">
+              {roomTitle || (mode === 'face' ? 'My Face Live Stream' : 'Live Party Chat')}
+            </span>
+            <span className="text-[10px] text-white/60">#{roomCategory}</span>
+          </div>
+
+          <div className="flex items-center gap-1 bg-amber-500/20 backdrop-blur-md border border-amber-500/30 px-2 py-0.5 rounded-full text-amber-300 text-[11px] font-bold">
+            <span>💎</span>
+            <span>{diamondsEarned.toLocaleString()}</span>
+          </div>
+        </div>
+
+        {/* Live Reward Milestones Tracker Ticker */}
+        <div className="pt-0.5">
+          <button
+            type="button"
+            id="btn-open-live-reward-rules"
+            onClick={() => setIsRewardRulesOpen(true)}
+            className="w-full bg-gradient-to-r from-amber-950/80 via-black/80 to-rose-950/80 hover:from-amber-900/90 hover:to-rose-900/90 backdrop-blur-md border border-amber-500/35 rounded-xl px-2.5 py-1.5 flex items-center justify-between text-left transition-all active:scale-98 shadow-md group"
+          >
+            <div className="flex items-center gap-1.5 overflow-hidden">
+              <span className="flex items-center justify-center w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 text-xs shrink-0 animate-pulse">
+                🎁
+              </span>
+              <div className="flex flex-col truncate">
+                <div className="flex items-center gap-1">
+                  <span className="text-[11px] font-bold text-amber-300 truncate">
+                    {mode === 'face' ? (
+                      streamDuration < 3600 ? (
+                        `१ घण्टा रिवार्ड: १०,००० Pts (${Math.max(0, Math.ceil((3600 - streamDuration) / 60))}m बाँकी)`
+                      ) : streamDuration < 7200 ? (
+                        `२ घण्टा रिवार्ड: फेरि +१०,००० Pts (${Math.max(0, Math.ceil((7200 - streamDuration) / 60))}m बाँकी)`
+                      ) : (
+                        `🏆 २०,००० Pts प्राप्त! २ घण्टा सीमा पूरा (लाइभ जारी)`
+                      )
+                    ) : (
+                      streamDuration < 3600 ? (
+                        `पार्टी १ घण्टा रिवार्ड: २,००० Pts (${Math.max(0, Math.ceil((3600 - streamDuration) / 60))}m बाँकी)`
+                      ) : (
+                        `🏆 Party Live रिवार्ड (२००० Pts) प्राप्त! (लाइभ जारी)`
+                      )
+                    )}
+                  </span>
+                </div>
+                <span className="text-[9px] text-neutral-400">
+                  {mode === 'face'
+                    ? '२ घण्टा सम्म मात्र रिवार्ड • छिटो टेस्ट / नियम हेर्न थिच्नुहोस्'
+                    : '१ घण्टा मात्र रिवार्ड • छिटो टेस्ट / नियम हेर्न थिच्नुहोस्'}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1 shrink-0 ml-1">
+              <span className="text-[10px] font-bold text-amber-300 bg-amber-500/25 px-1.5 py-0.5 rounded-lg border border-amber-500/40 flex items-center gap-1">
+                <span>नियम</span>
+                <span className="text-[9px] text-white bg-rose-600 px-1 rounded font-bold">⚡Test</span>
+              </span>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      {/* ================= PARTY LIVE STAGE (IF PARTY MODE) ================= */}
+      {mode === 'party' && (
+        <div id="party-live-section" className="relative z-20 my-auto animate-fade-in">
+          <PartyGrid
+            seats={partySeats}
+            seatCount={partySeatCount}
+            onChangeSeatCount={handleChangeSeatCount}
+            onTakeSeat={handleTakeSeat}
+            onLeaveSeat={handleLeaveSeat}
+            onToggleSeatMic={handleToggleSeatMic}
+            onToggleSeatVideo={handleToggleSeatVideo}
+            isHost={isHostStreamer}
+            isCameraOn={isCameraOn}
+            facingMode={facingMode}
+            filter={filter}
+            onToggleFacingMode={() =>
+              setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'))
+            }
+          />
+
+          {/* PK Battle Bar (Party Live Feature) */}
+          {isPkActive && (
+            <div
+              id="pk-battle-display"
+              className="mx-3 my-1 p-2 rounded-2xl bg-neutral-900/90 border border-white/20 shadow-2xl backdrop-blur-md animate-slide-down"
+            >
+              <div className="flex items-center justify-between text-xs font-black px-1 mb-1">
+                <span className="text-sky-400">BLUE: {pkBlueScore}</span>
+                <span className="bg-rose-500 text-white text-[10px] px-2 py-0.5 rounded-full animate-pulse">
+                  PK {pkTimeLeft}s
+                </span>
+                <span className="text-rose-400">RED: {pkRedScore}</span>
+              </div>
+              <div className="w-full h-3 bg-neutral-800 rounded-full overflow-hidden flex">
+                <div
+                  className="bg-sky-500 transition-all duration-300"
+                  style={{ width: `${(pkBlueScore / (pkBlueScore + pkRedScore)) * 100}%` }}
+                />
+                <div
+                  className="bg-rose-500 transition-all duration-300"
+                  style={{ width: `${(pkRedScore / (pkRedScore + pkBlueScore)) * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Floating Hearts Container */}
+      <FloatingHearts triggerCount={heartTrigger} />
+
+      {/* Full-screen Gift Animation Overlay */}
+      <GiftEffectOverlay
+        activeGift={activeGiftAnimation}
+        onFinished={() => setActiveGiftAnimation(null)}
+      />
+
+      {/* ================= BOTTOM SECTION: CHAT & CONTROLS ================= */}
+      <div id="live-room-bottom-section" className="relative z-20 px-3 pb-3 flex flex-col gap-2.5">
+        {/* Live Chat Box (Overlay) */}
+        <div
+          ref={chatScrollRef}
+          id="live-chat-scroll-area"
+          className="max-h-44 sm:max-h-48 overflow-y-auto space-y-1.5 pr-1 scrollbar-thin scrollbar-thumb-white/20"
+        >
+          {chatMessages.map((msg) => {
+            if (msg.type === 'system') {
+              return (
+                <div
+                  key={msg.id}
+                  className="inline-block max-w-[90%] bg-indigo-950/70 border border-indigo-500/30 text-indigo-200 text-xs px-2.5 py-1 rounded-xl backdrop-blur-md"
+                >
+                  <span className="font-semibold text-indigo-300">📢 {msg.user}: </span>
+                  <span>{msg.text}</span>
+                </div>
+              );
+            }
+
+            if (msg.type === 'gift') {
+              return (
+                <div
+                  key={msg.id}
+                  className="inline-flex items-center gap-1.5 max-w-[95%] bg-gradient-to-r from-amber-500/30 to-rose-500/30 border border-amber-400/40 text-white text-xs px-2.5 py-1 rounded-xl backdrop-blur-md shadow-md animate-bounce-short"
+                >
+                  <span className="font-bold text-amber-300">{msg.user}</span>
+                  <span className="text-white/80">{msg.text}</span>
+                  <span className="text-lg">{msg.giftIcon}</span>
+                </div>
+              );
+            }
+
+            return (
+              <div
+                key={msg.id}
+                className="inline-flex items-start gap-1.5 max-w-[88%] bg-black/45 border border-white/10 text-xs px-2.5 py-1 rounded-xl backdrop-blur-md"
+              >
+                {msg.badge && (
+                  <span className="bg-amber-500 text-black font-extrabold text-[9px] px-1 rounded-sm mt-0.5">
+                    {msg.badge}
+                  </span>
+                )}
+                <span className="font-bold text-rose-300 shrink-0">{msg.user}:</span>
+                <span className="text-white/95 break-words">{msg.text}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Live Comment Input and Quick Bar */}
+        <form onSubmit={handleSendMessage} className="flex items-center gap-1.5">
+          <input
+            type="text"
+            id="input-live-comment"
+            value={commentInput}
+            onChange={(e) => setCommentInput(e.target.value)}
+            placeholder="Say something nice..."
+            className="flex-1 bg-black/50 border border-white/20 rounded-full px-3.5 py-2 text-xs text-white placeholder-white/50 focus:outline-none focus:border-rose-500 backdrop-blur-md transition-all"
+          />
+          <button
+            type="submit"
+            id="btn-send-comment"
+            disabled={!commentInput.trim()}
+            className="p-2 rounded-full bg-rose-600 disabled:opacity-40 text-white hover:bg-rose-700 transition-all active:scale-95 shrink-0 shadow-md"
+            title="Send"
+          >
+            <Send size={15} />
+          </button>
+        </form>
+
+        {/* Stream Controls Action Toolbar */}
+        <div id="live-action-toolbar" className="flex items-center justify-between pt-1">
+          {/* Left Controls: Mic, Camera, Filter */}
+          <div className="flex items-center gap-1.5">
+            {/* Mic Toggle */}
+            <button
+              type="button"
+              id="btn-toggle-mic"
+              onClick={() => {
+                const nextMic = !isMicOn;
+                setIsMicOn(nextMic);
+                setPartySeats((prev) =>
+                  prev.map((s) => (s.userName?.includes('You') ? { ...s, isMuted: !nextMic } : s))
+                );
+              }}
+              className={`p-2.5 rounded-full border backdrop-blur-md transition-all active:scale-90 ${
+                isMicOn
+                  ? 'bg-white/15 border-white/20 text-white'
+                  : 'bg-rose-600 border-rose-500 text-white shadow-lg shadow-rose-600/30'
+              }`}
+              title={isMicOn ? 'Mute Microphone' : 'Unmute Microphone'}
+            >
+              {isMicOn ? <Mic size={17} /> : <MicOff size={17} />}
+            </button>
+
+            {/* Video Toggle */}
+            <button
+              type="button"
+              id="btn-toggle-camera"
+              onClick={() => {
+                const nextCam = !isCameraOn;
+                setIsCameraOn(nextCam);
+                setPartySeats((prev) =>
+                  prev.map((s) => (s.userName?.includes('You') ? { ...s, isVideoOn: nextCam } : s))
+                );
+              }}
+              className={`p-2.5 rounded-full border backdrop-blur-md transition-all active:scale-90 ${
+                isCameraOn
+                  ? 'bg-white/15 border-white/20 text-white'
+                  : 'bg-rose-600 border-rose-500 text-white shadow-lg shadow-rose-600/30'
+              }`}
+              title={isCameraOn ? 'Turn Camera Off' : 'Turn Camera On'}
+            >
+              {isCameraOn ? <Video size={17} /> : <VideoOff size={17} />}
+            </button>
+
+            {/* Beauty & Visual Filters */}
+            <button
+              type="button"
+              id="btn-open-filters"
+              onClick={() => setIsFilterSheetOpen(true)}
+              className={`p-2.5 rounded-full border backdrop-blur-md transition-all active:scale-90 ${
+                filter !== 'none'
+                  ? 'bg-rose-500 border-rose-400 text-white'
+                  : 'bg-white/15 border-white/20 text-white hover:bg-white/25'
+              }`}
+              title="Beauty & Video Filters"
+            >
+              <Sparkles size={17} />
+            </button>
+
+            {/* Party Mode Special Feature: PK Battle or Party Music */}
+            {mode === 'party' && (
+              <button
+                type="button"
+                id="btn-toggle-pk"
+                onClick={() => setIsPkActive(!isPkActive)}
+                className={`p-2.5 rounded-full border backdrop-blur-md transition-all active:scale-90 ${
+                  isPkActive
+                    ? 'bg-amber-500 border-amber-400 text-black font-bold animate-pulse'
+                    : 'bg-indigo-600/80 border-indigo-400 text-white hover:bg-indigo-500'
+                }`}
+                title="Start PK Battle"
+              >
+                <Swords size={17} />
+              </button>
+            )}
+
+            {/* Party Mode Background Music Audio toggle */}
+            {mode === 'party' && (
+              <button
+                type="button"
+                id="btn-toggle-party-music"
+                onClick={() => setIsPartyAudioActive(!isPartyAudioActive)}
+                className={`p-2.5 rounded-full border backdrop-blur-md transition-all active:scale-90 ${
+                  isPartyAudioActive
+                    ? 'bg-emerald-600/80 border-emerald-400 text-white'
+                    : 'bg-white/10 border-white/15 text-white/60'
+                }`}
+                title="Party Background Music"
+              >
+                {isPartyAudioActive ? <Volume2 size={17} /> : <VolumeX size={17} />}
+              </button>
+            )}
+          </div>
+
+          {/* Right Controls: Share, Gift Tray, Heart Like */}
+          <div className="flex items-center gap-2">
+            {/* Share */}
+            <button
+              type="button"
+              id="btn-share-stream"
+              onClick={() => {
+                if (navigator.share) {
+                  navigator.share({
+                    title: 'TikTop Live',
+                    text: `Watch my live stream on TikTop: ${roomTitle}`,
+                    url: window.location.href,
+                  }).catch(() => {});
+                } else {
+                  navigator.clipboard?.writeText(window.location.href);
+                  alert('Stream link copied to clipboard!');
+                }
+              }}
+              className="p-2.5 rounded-full bg-white/15 hover:bg-white/25 border border-white/20 text-white backdrop-blur-md transition-all active:scale-90"
+              title="Share Stream"
+            >
+              <Share2 size={17} />
+            </button>
+
+            {/* Gifts Tray Trigger */}
+            <button
+              type="button"
+              id="btn-open-gift-tray"
+              onClick={() => setIsGiftTrayOpen(true)}
+              className="p-2.5 rounded-full bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-600 hover:to-rose-600 border border-amber-300/40 text-white shadow-lg shadow-amber-500/30 transition-all active:scale-90 animate-pulse"
+              title="Send Gift"
+            >
+              <GiftIcon size={18} />
+            </button>
+
+            {/* Like Heart Button */}
+            <button
+              type="button"
+              id="btn-tap-heart-like"
+              onClick={handleLikeTap}
+              className="relative p-2.5 rounded-full bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-600/40 border border-rose-400/50 transition-all active:scale-125"
+              title="Like / Heart"
+            >
+              <Heart size={20} className="fill-white" />
+              <span className="absolute -top-1 -right-1 bg-amber-400 text-black font-extrabold text-[9px] px-1 rounded-full shadow">
+                {likesCount > 999 ? `${(likesCount / 1000).toFixed(1)}k` : likesCount}
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ================= MODALS & SHEETS ================= */}
+
+      {/* Gift Tray Drawer */}
+      <GiftTray
+        isOpen={isGiftTrayOpen}
+        userCoins={coinsBalance}
+        userDiamonds={coinsBalance}
+        onClose={() => setIsGiftTrayOpen(false)}
+        onSendGift={handleSendGift}
+        onRechargeCoins={onOpenRechargeCoins}
+        onRechargeDiamonds={onOpenRechargeCoins || (() => {
+          if (onUpdateCoins) onUpdateCoins(coinsBalance + 500);
+          else if (onUpdateDiamonds) onUpdateDiamonds(coinsBalance + 500);
+        })}
+      />
+
+      {/* Filter Selector Drawer */}
+      <FilterSelector
+        isOpen={isFilterSheetOpen}
+        activeFilter={filter}
+        onSelectFilter={(f) => {
+          setFilter(f);
+          setIsFilterSheetOpen(false);
+        }}
+        onClose={() => setIsFilterSheetOpen(false)}
+      />
+
+      {/* Exit Confirmation Dialog */}
+      {showExitConfirm && (
+        <div
+          id="exit-confirm-modal"
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+        >
+          <div className="w-full max-w-xs bg-neutral-900 border border-white/15 rounded-3xl p-5 text-center shadow-2xl animate-scale-in">
+            <h4 className="text-base font-bold text-white mb-1">End Live Stream?</h4>
+            <p className="text-xs text-neutral-400 mb-5">
+              Are you sure you want to end this broadcast? Your viewers will be notified.
+            </p>
+
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                id="btn-confirm-end-stream"
+                onClick={() => {
+                  setShowExitConfirm(false);
+                  setShowSummary(true);
+                }}
+                className="w-full py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-semibold text-sm transition-all active:scale-95 shadow-md"
+              >
+                End Now
+              </button>
+              <button
+                type="button"
+                id="btn-cancel-end-stream"
+                onClick={() => setShowExitConfirm(false)}
+                className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white font-medium text-sm transition-all"
+              >
+                Keep Streaming
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Post-Stream Analytics Summary Modal */}
+      <StreamSummaryModal
+        isOpen={showSummary}
+        durationSeconds={streamDuration}
+        viewerCount={viewersCount}
+        likesCount={likesCount}
+        diamondsEarned={diamondsEarned}
+        liveRewardPoints={liveDurationRewardPoints}
+        onClose={() => {
+          setShowSummary(false);
+          onExit(); // Safely returns to Home View
+        }}
+      />
+
+      {/* Live Reward Celebration Popup Dialog */}
+      {activeRewardAlert && (
+        <LiveRewardCelebrationModal
+          isOpen={!!activeRewardAlert}
+          points={activeRewardAlert.points}
+          title={activeRewardAlert.title}
+          titleNep={activeRewardAlert.titleNep}
+          description={activeRewardAlert.description}
+          isCapReached={activeRewardAlert.isCapReached}
+          mode={mode}
+          onClose={() => setActiveRewardAlert(null)}
+        />
+      )}
+
+      {/* Live Reward Rules & Fast-Forward Testing Sheet */}
+      <LiveRewardRulesModal
+        isOpen={isRewardRulesOpen}
+        onClose={() => setIsRewardRulesOpen(false)}
+        mode={mode}
+        currentDurationSeconds={streamDuration}
+        totalRewardPointsEarned={liveDurationRewardPoints}
+        claimedFaceHour1={claimedMilestones.faceHour1}
+        claimedFaceHour2={claimedMilestones.faceHour2}
+        claimedPartyHour1={claimedMilestones.partyHour1}
+        claimedPartyHour2={claimedMilestones.partyHour2}
+        onFastForward={(secs) => setStreamDuration((prev) => prev + secs)}
+        onSetDuration={(target) => {
+          if (target === 0) {
+            setClaimedMilestones({ faceHour1: false, faceHour2: false, partyHour1: false, partyHour2: false });
+          }
+          setStreamDuration(target);
+        }}
+      />
+
+      {/* 3-2-1 Animated Countdown Overlay Popup Before Stream Starts */}
+      {isCountdownActive && (
+        <CountdownOverlay
+          mode={mode}
+          roomTitle={roomTitle}
+          roomCategory={roomCategory}
+          onComplete={handleCountdownComplete}
+        />
+      )}
+    </div>
+  );
+};
