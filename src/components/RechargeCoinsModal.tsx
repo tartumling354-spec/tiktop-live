@@ -473,7 +473,7 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
     name: activeMethod.name,
     accountNumber: activeMethod.receiverAccount,
     displayAccount: activeMethod.displayAccount,
-    accountHolder: 'TikTop Official Developer',
+    accountHolder: 'Shambu Lamsal',
     remarksNote: 'रिमार्क्समा आफ्नो TikTop ID लेख्नुहोस्',
   };
 
@@ -1593,13 +1593,13 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
                       {/* Account Holder */}
                       <div className="p-2.5 rounded-xl bg-white/5 border border-white/10">
                         <span className="text-[10px] text-neutral-400 block">खातावालाको नाम (A/C Name):</span>
-                        <span className="font-bold text-white text-xs block truncate">TikTop Official Developer</span>
+                        <span className="font-bold text-white text-xs block truncate">Shambu Lamsal</span>
                       </div>
                     </div>
 
                     {/* Branch */}
                     <div className="flex items-center justify-between px-2.5 py-1 text-[11px] text-neutral-400 border-t border-white/10">
-                      <span>शाखा (Branch): <strong className="text-white">Kathmandu Main Branch, Nepal</strong></span>
+                      <span>शाखा (Branch): <strong className="text-white">Tumlingtar Branch, Nepal</strong></span>
                       <span>मुद्रा (Currency): <strong className="text-amber-300">NPR / USD</strong></span>
                     </div>
                   </div>

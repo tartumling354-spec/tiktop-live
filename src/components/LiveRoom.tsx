@@ -16,18 +16,42 @@ import {
   VolumeX,
   Award,
 } from 'lucide-react';
-import { LiveMode, VideoFilter, ChatMessage, Gift, PartySeat, PartySeatCount, UserProfile } from '../types';
+import {
+  LiveMode,
+  VideoFilter,
+  ChatMessage,
+  Gift,
+  PartySeat,
+  PartySeatCount,
+  UserProfile,
+  PartyAccessMode,
+  BannedUser,
+  SeatJoinRequest,
+  SeatInvitation,
+} from '../types';
 import { LiveCameraStream } from './LiveCameraStream';
 import { PartyGrid } from './PartyGrid';
 import { GiftTray } from './GiftTray';
 import { FilterSelector } from './FilterSelector';
-import { GiftEffectOverlay } from './GiftEffectOverlay';
+import { GiftEffectOverlay, ActiveGiftAnimation } from './GiftEffectOverlay';
 import { FloatingHearts } from './FloatingHearts';
 import { StreamSummaryModal } from './StreamSummaryModal';
+import { LeaveLiveModal } from './LeaveLiveModal';
+import { LevelUpCelebrationModal } from './LevelUpCelebrationModal';
 import { CountdownOverlay } from './CountdownOverlay';
 import { LiveRewardCelebrationModal } from './LiveRewardCelebrationModal';
 import { LiveRewardRulesModal } from './LiveRewardRulesModal';
+import { SeatInvitePrompt } from './SeatInviteModal';
 import { INITIAL_PARTY_SEATS, generatePartySeats, assignUserToSeat } from '../data/mockData';
+import {
+  getStoredWealthTotal,
+  calculateWealthLevel,
+  recordGiftSent,
+  getStoredLiveTotal,
+  calculateLiveLevel,
+  recordGiftReceived,
+  LevelInfo,
+} from '../utils/levelSystem';
 
 interface LiveRoomProps {
   mode: LiveMode;
@@ -87,6 +111,7 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
   userProfile,
 }) => {
   const coinsBalance = userCoins !== undefined ? userCoins : userDiamonds;
+  const isPartyLive = mode === 'party';
   // 3-2-1 Countdown state
   const [isCountdownActive, setIsCountdownActive] = useState<boolean>(showCountdown);
 
@@ -109,6 +134,23 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
   );
   const [heartTrigger, setHeartTrigger] = useState<number>(0);
 
+  // Party Moderation, Access Mode, Bans & Invitations
+  const [partyAccessMode, setPartyAccessMode] = useState<PartyAccessMode>('free');
+  const [bannedUsers, setBannedUsers] = useState<BannedUser[]>([]);
+  const [seatJoinRequests, setSeatJoinRequests] = useState<SeatJoinRequest[]>([]);
+  const [activeSeatInvitation, setActiveSeatInvitation] = useState<SeatInvitation | null>(null);
+  const [isUserFanClub, setIsUserFanClub] = useState<boolean>(true);
+
+  // Role switching for interactive testing & simulation:
+  // 'host' -> strictly occupies Seat #1, supreme admin power
+  // 'admin' -> moderation rights, cannot kick admin, cannot kick host
+  // 'guest' -> regular audience, sends requests in approval mode, accepts invites
+  const [currentRole, setCurrentRole] = useState<'host' | 'admin' | 'guest'>(
+    isHostStreamer ? 'host' : 'guest'
+  );
+  const effectiveIsHost = currentRole === 'host';
+  const effectiveIsAdmin = currentRole === 'admin';
+
   // PK Battle State for Party Mode
   const [isPkActive, setIsPkActive] = useState<boolean>(false);
   const [pkBlueScore, setPkBlueScore] = useState<number>(180);
@@ -117,12 +159,21 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
 
   // Dialogs & Sheets
   const [isGiftTrayOpen, setIsGiftTrayOpen] = useState<boolean>(false);
+  const [selectedPartyRecipients, setSelectedPartyRecipients] = useState<'all' | number[]>('all');
   const [isFilterSheetOpen, setIsFilterSheetOpen] = useState<boolean>(false);
-  const [activeGiftAnimation, setActiveGiftAnimation] = useState<{
-    id: string;
-    senderName: string;
-    gift: Gift;
-  } | null>(null);
+
+  const handleOpenGiftForSeat = (seatNumber: number) => {
+    setSelectedPartyRecipients([seatNumber]);
+    setIsGiftTrayOpen(true);
+  };
+  const [activeGiftAnimation, setActiveGiftAnimation] = useState<ActiveGiftAnimation | null>(null);
+  const [levelUpData, setLevelUpData] = useState<{ type: 'wealth' | 'live'; levelInfo: LevelInfo } | null>(null);
+  const [myWealthLevel, setMyWealthLevel] = useState<LevelInfo>(() =>
+    calculateWealthLevel(getStoredWealthTotal())
+  );
+  const [hostLiveLevel, setHostLiveLevel] = useState<LevelInfo>(() =>
+    calculateLiveLevel(getStoredLiveTotal())
+  );
   const [showExitConfirm, setShowExitConfirm] = useState<boolean>(false);
   const [showSummary, setShowSummary] = useState<boolean>(false);
   const [streamDuration, setStreamDuration] = useState<number>(0);
@@ -461,36 +512,150 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
     setHeartTrigger((prev) => prev + 1);
   };
 
-  // Send Gift (Costs Coins, Host earns Points)
-  const handleSendGift = (gift: Gift) => {
-    const cost = gift.coins ?? gift.diamonds;
-    if (coinsBalance < cost) {
+  // Send Gift (Costs Coins, Host/Seats earn Points, supports multi-seat selection e.g. 1, 3, 8 or all)
+  const handleSendGift = (gift: Gift, recipientTarget: 'all' | number | number[] = 'all') => {
+    const singleCost = gift.coins ?? gift.diamonds;
+
+    // Identify targets in Party mode
+    const occupiedSeats = isPartyLive ? partySeats.filter((s) => s.isOccupied) : [];
+    
+    let targetSeatNumbers: number[] = [];
+    let isGiftingAll = false;
+
+    if (!isPartyLive) {
+      targetSeatNumbers = [];
+    } else if (recipientTarget === 'all') {
+      isGiftingAll = true;
+      targetSeatNumbers = occupiedSeats.map((s) => s.seatNumber);
+    } else if (Array.isArray(recipientTarget)) {
+      targetSeatNumbers = recipientTarget;
+      if (targetSeatNumbers.length === 0) {
+        targetSeatNumbers = occupiedSeats.length > 0 ? [occupiedSeats[0].seatNumber] : [1];
+      }
+    } else if (typeof recipientTarget === 'number') {
+      targetSeatNumbers = [recipientTarget];
+    }
+
+    const matchedTargetSeats = isPartyLive
+      ? partySeats.filter((s) => s.isOccupied && targetSeatNumbers.includes(s.seatNumber))
+      : [];
+
+    const recipientCount = isPartyLive
+      ? Math.max(1, isGiftingAll ? occupiedSeats.length : matchedTargetSeats.length)
+      : 1;
+
+    const totalCost = singleCost * recipientCount;
+
+    if (coinsBalance < totalCost) {
       if (onOpenRechargeCoins) {
         onOpenRechargeCoins();
       } else {
-        alert(`पर्याप्त सिक्का (Coins) छैन! तपाईंसँग ${coinsBalance} Coins छ, तर ${cost} चाहिन्छ। कृपया Coins रिचार्ज गर्नुहोस्!`);
+        alert(
+          `पर्याप्त सिक्का (Coins) छैन! कुल ${totalCost.toLocaleString()} Coins चाहिन्छ, तर तपाईंसँग ${coinsBalance.toLocaleString()} Coins मात्र छ। कृपया Coins रिचार्ज गर्नुहोस्!`
+        );
       }
       return;
     }
 
+    // Deduct coins from user balance
     if (onUpdateCoins) {
-      onUpdateCoins(coinsBalance - cost);
+      onUpdateCoins(coinsBalance - totalCost);
     } else if (onUpdateDiamonds) {
-      onUpdateDiamonds(coinsBalance - cost);
+      onUpdateDiamonds(coinsBalance - totalCost);
     }
 
-    // Host accumulates Points for all gift rewards
+    // Calculate points per recipient (Lucky category includes surprise multipliers)
+    let pointsPerRecipient = singleCost;
+    let luckyMultiplier = 1;
+    if (gift.category === 'lucky') {
+      const multipliers = [1.2, 1.5, 2.0];
+      luckyMultiplier = multipliers[Math.floor(Math.random() * multipliers.length)];
+      pointsPerRecipient = Math.round(singleCost * luckyMultiplier);
+    }
+    const totalPointsAwarded = pointsPerRecipient * recipientCount;
+
     if (onAddPoints) {
-      onAddPoints(cost);
+      onAddPoints(totalPointsAwarded);
     }
-    setDiamondsEarned((prev) => prev + cost);
+    setDiamondsEarned((prev) => prev + totalPointsAwarded);
 
+    // Record gift sent -> Updates user's Wealth Level
+    const wealthRes = recordGiftSent(totalCost);
+    setMyWealthLevel(wealthRes.levelInfo);
+
+    // Record gift received -> Updates Host's Live Level
+    const liveRes = recordGiftReceived(totalPointsAwarded);
+    setHostLiveLevel(liveRes.levelInfo);
+
+    // Check if either leveled up to celebrate
+    if (wealthRes.didLevelUp) {
+      setLevelUpData({ type: 'wealth', levelInfo: wealthRes.levelInfo });
+    } else if (liveRes.didLevelUp) {
+      setLevelUpData({ type: 'live', levelInfo: liveRes.levelInfo });
+    }
+
+    // In Party Live: award points and show floating points above the head of the recipient seat(s)
+    if (isPartyLive) {
+      const now = Date.now();
+      setPartySeats((prevSeats) =>
+        prevSeats.map((seat) => {
+          const isTarget = isGiftingAll
+            ? seat.isOccupied
+            : targetSeatNumbers.includes(seat.seatNumber) && seat.isOccupied;
+
+          if (isTarget) {
+            return {
+              ...seat,
+              pointsEarned: (seat.pointsEarned || 0) + pointsPerRecipient,
+              recentGiftEffect: {
+                giftIcon: gift.icon,
+                giftName: gift.name,
+                points: pointsPerRecipient,
+                timestamp: now,
+              },
+            };
+          }
+          return seat;
+        })
+      );
+
+      // Snappy clear of head points badge after 3.2 seconds
+      setTimeout(() => {
+        setPartySeats((prevSeats) =>
+          prevSeats.map((seat) => {
+            if (seat.recentGiftEffect && seat.recentGiftEffect.timestamp === now) {
+              return { ...seat, recentGiftEffect: undefined };
+            }
+            return seat;
+          })
+        );
+      }, 3200);
+    }
+
+    // Construct Recipient Description
+    let recipientLabel = isHostStreamer ? 'Host' : (userProfile?.name || 'Host');
+    if (isPartyLive) {
+      if (isGiftingAll) {
+        recipientLabel = `सबै सिटहरू (${recipientCount} जना)`;
+      } else if (matchedTargetSeats.length === 1) {
+        recipientLabel = `${matchedTargetSeats[0].userName} (Seat #${matchedTargetSeats[0].seatNumber})`;
+      } else if (matchedTargetSeats.length > 1) {
+        const seatNumbersStr = matchedTargetSeats.map((s) => `#${s.seatNumber}`).join(', ');
+        recipientLabel = `${matchedTargetSeats.length} जना (${seatNumbersStr})`;
+      } else if (targetSeatNumbers.length > 0) {
+        recipientLabel = targetSeatNumbers.map((n) => `Seat #${n}`).join(', ');
+      }
+    }
+
+    const luckyBonusText = gift.category === 'lucky' ? ` (🍀 Lucky Bonus x${luckyMultiplier}!)` : '';
+    const targetText = isPartyLive ? ` ➔ ${recipientLabel}` : '';
     const giftMsg: ChatMessage = {
       id: `gift-${Date.now()}`,
-      user: 'You',
-      avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
-      text: `sent ${gift.name} ${gift.icon}`,
+      user: userProfile?.name || 'You',
+      avatar: userProfile?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
+      text: `sent ${gift.name} ${gift.icon}${targetText}${luckyBonusText}`,
       type: 'gift',
+      badge: `👑 Lv.${wealthRes.levelInfo.level}`,
       giftName: gift.name,
       giftIcon: gift.icon,
       timestamp: 'Just now',
@@ -499,8 +664,13 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
 
     setActiveGiftAnimation({
       id: `anim-${Date.now()}`,
-      senderName: 'You',
+      senderName: userProfile?.name || 'You',
+      senderWealthLevel: wealthRes.levelInfo.level,
+      recipientName: recipientLabel,
+      isAllParty: isGiftingAll,
+      recipientCount: isGiftingAll || matchedTargetSeats.length > 1 ? recipientCount : undefined,
       gift,
+      luckyMultiplier: gift.category === 'lucky' ? luckyMultiplier : undefined,
     });
     setIsGiftTrayOpen(false);
   };
@@ -523,18 +693,41 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
   };
 
   /**
-   * Take a seat with STRICT single-seat occupancy:
-   * 'ek byakti ek mattra seat ma basna milnu parxa' (One person can only occupy ONE seat at a time).
+   * Take a seat with STRICT single-seat occupancy & Host/Moderation rules:
+   * 1. 'Host sandhai 1 number seat mai baseko hunu parxa' (Host is always anchored to Seat #1).
+   * 2. Non-hosts cannot take Seat #1.
+   * 3. Users banned within the 30-minute window cannot take a seat.
+   * 4. 'Ek byakti ek mattra seat ma basna milnu parxa' (One person only on one seat).
    */
   const handleTakeSeat = (seatNumber: number) => {
+    const currentUserName = userProfile?.name || 'You';
+
+    // Check 30m ban
+    const activeBan = bannedUsers.find(
+      (b) => (b.userName === currentUserName || b.userName === 'You') && b.expiresAt > Date.now()
+    );
+    if (activeBan) {
+      const remainingMins = Math.max(1, Math.ceil((activeBan.expiresAt - Date.now()) / (60 * 1000)));
+      alert(`⚠️ तपाईंलाई अनुचित व्यवहारका कारण ३० मिनेटका लागि प्रतिबन्ध लगाइएको छ। अझै ${remainingMins} मिनेट बाँकी छ।`);
+      return;
+    }
+
+    // Check Seat 1 Host-only rule
+    if (seatNumber === 1 && !effectiveIsHost) {
+      alert('👑 सिट नम्बर १ कोठाको होस्टको लागि मात्र आरक्षित छ। कृपया अन्य सिट रोज्नुहोस्।');
+      return;
+    }
+
     const previousUserSeat = partySeats.find((s) => s.isOccupied && s.userName?.includes('You'));
 
     // assignUserToSeat automatically removes 'You' from any previous seat!
     const updated = assignUserToSeat(partySeats, seatNumber, {
-      userName: isHostStreamer ? `${userProfile?.name || 'You'} (Host)` : (userProfile?.name || 'You'),
+      userName: effectiveIsHost ? `${userProfile?.name || 'You'} (Host)` : (userProfile?.name || 'You'),
       userAvatar: userProfile?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
-      isHost: isHostStreamer,
+      isHost: effectiveIsHost,
       isVideoOn: isCameraOn,
+      isAdmin: effectiveIsAdmin,
+      isFanClub: isUserFanClub,
     });
 
     setPartySeats(updated);
@@ -567,6 +760,12 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
   };
 
   const handleLeaveSeat = (seatNumber: number) => {
+    // If user is host on seat 1, host cannot leave seat 1
+    if (seatNumber === 1 && effectiveIsHost) {
+      alert('👑 होस्टले १ नम्बर सिट छोड्न मिल्दैन। तपाईं सधैं १ नम्बर सिटमै रहनुपर्छ।');
+      return;
+    }
+
     setPartySeats((prev) =>
       prev.map((s) =>
         s.seatNumber === seatNumber
@@ -576,6 +775,8 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
               userName: undefined,
               userAvatar: undefined,
               isHost: false,
+              isAdmin: false,
+              isFanClub: false,
               isSpeaking: false,
               isMuted: false,
               isVideoOn: false,
@@ -591,6 +792,311 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
         user: 'TikTop Party',
         avatar: '',
         text: `You left Seat #${seatNumber}.`,
+        type: 'system',
+        timestamp: 'Just now',
+      },
+    ]);
+  };
+
+  // Moderation: Kick user from seat
+  const handleKickFromSeat = (seatNumber: number, userName: string) => {
+    setPartySeats((prev) =>
+      prev.map((s) =>
+        s.seatNumber === seatNumber
+          ? {
+              ...s,
+              isOccupied: false,
+              userName: undefined,
+              userAvatar: undefined,
+              isHost: false,
+              isAdmin: false,
+              isFanClub: false,
+              isSpeaking: false,
+              isMuted: false,
+              isVideoOn: false,
+              videoUrl: undefined,
+            }
+          : s
+      )
+    );
+
+    const actor = effectiveIsHost ? 'होस्ट (Host)' : 'व्यवस्थापक (Admin)';
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: `kick-${Date.now()}`,
+        user: 'TikTop Moderation 🚪',
+        avatar: '',
+        text: `🚪 ${actor} ले ${userName} लाई सिट #${seatNumber} बाट हटाउनुभयो।`,
+        type: 'system',
+        timestamp: 'Just now',
+      },
+    ]);
+  };
+
+  // Moderation: 30 Minutes Ban & Kick for disruptive / inappropriate behavior
+  const handleBanUser30m = (
+    userName: string,
+    userAvatar?: string,
+    reason?: string,
+    seatNumber?: number
+  ) => {
+    if (seatNumber) {
+      setPartySeats((prev) =>
+        prev.map((s) =>
+          s.seatNumber === seatNumber
+            ? {
+                ...s,
+                isOccupied: false,
+                userName: undefined,
+                userAvatar: undefined,
+                isHost: false,
+                isAdmin: false,
+                isFanClub: false,
+                isSpeaking: false,
+                isMuted: false,
+                isVideoOn: false,
+                videoUrl: undefined,
+              }
+            : s
+        )
+      );
+    }
+
+    const now = Date.now();
+    const expiresAt = now + 30 * 60 * 1000; // Exactly 30 minutes
+    const actor = effectiveIsHost ? 'होस्ट (Host)' : 'व्यवस्थापक (Admin)';
+    const banReasonText = reason || 'अनुचित बोली वा गालीगलौज';
+
+    const newBan: BannedUser = {
+      id: `ban-${now}`,
+      userName,
+      userAvatar: userAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
+      bannedBy: actor,
+      bannedAt: now,
+      expiresAt,
+      reason: banReasonText,
+    };
+
+    setBannedUsers((prev) => [newBan, ...prev]);
+
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: `ban-msg-${now}`,
+        user: 'TikTop Moderation 🚫',
+        avatar: '',
+        text: `🚫 [३० मिनेट निष्कासन] ${actor} ले ${userName} लाई अनुचित व्यवहार (${banReasonText}) का कारण ३० मिनेटका लागि लाइभबाट निष्कासन तथा प्रतिबन्ध लगाउनुभयो!`,
+        type: 'system',
+        timestamp: 'Just now',
+      },
+    ]);
+  };
+
+  // Moderation: Unban a previously banned user
+  const handleUnbanUser = (banId: string) => {
+    const target = bannedUsers.find((b) => b.id === banId);
+    setBannedUsers((prev) => prev.filter((b) => b.id !== banId));
+    if (target) {
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: `unban-${Date.now()}`,
+          user: 'TikTop Moderation ✅',
+          avatar: '',
+          text: `✅ ${target.userName} को ३० मिनेट प्रतिबन्ध फुकुवा गरियो।`,
+          type: 'system',
+          timestamp: 'Just now',
+        },
+      ]);
+    }
+  };
+
+  // Host: Appoint or remove Admin role on a seat
+  const handleToggleAdmin = (seatNumber: number, makeAdmin: boolean) => {
+    setPartySeats((prev) =>
+      prev.map((s) => {
+        if (s.seatNumber === seatNumber) {
+          return { ...s, isAdmin: makeAdmin };
+        }
+        return s;
+      })
+    );
+
+    const seat = partySeats.find((s) => s.seatNumber === seatNumber);
+    const targetName = seat?.userName || `Seat #${seatNumber}`;
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: `admin-toggle-${Date.now()}`,
+        user: 'TikTop Moderation 🛡️',
+        avatar: '',
+        text: `🛡️ होस्टले ${targetName} लाई व्यवस्थापक (Admin) ${
+          makeAdmin ? 'पदमा नियुक्त गर्नुभयो' : 'पदबाट हटाउनुभयो'
+        }!`,
+        type: 'system',
+        timestamp: 'Just now',
+      },
+    ]);
+  };
+
+  // Invite an audience member to sit on a specific seat
+  const handleSendInvite = (targetUser: any, seatNumber: number) => {
+    const inv: SeatInvitation = {
+      id: `inv-${Date.now()}`,
+      seatNumber,
+      invitedBy: effectiveIsHost ? 'Host' : 'Admin',
+      invitedUserName: targetUser.name || 'Audience Member',
+      invitedUserAvatar: targetUser.avatar,
+      timestamp: Date.now(),
+    };
+
+    // Set active invitation so it can be previewed/accepted in UI
+    setActiveSeatInvitation(inv);
+
+    const actor = effectiveIsHost ? 'होस्ट' : 'एडमिन';
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: `inv-sent-${Date.now()}`,
+        user: 'TikTop Party 📩',
+        avatar: '',
+        text: `📩 ${actor} ले ${inv.invitedUserName} लाई Seat #${seatNumber} मा बस्न आमन्त्रण पठाउनुभयो!`,
+        type: 'system',
+        timestamp: 'Just now',
+      },
+    ]);
+  };
+
+  // Audience accepts seat invitation
+  const handleAcceptSeatInvite = (invitation: SeatInvitation) => {
+    const updated = assignUserToSeat(partySeats, invitation.seatNumber, {
+      userName: `${userProfile?.name || invitation.invitedUserName}`,
+      userAvatar: userProfile?.avatar || invitation.invitedUserAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
+      isHost: false,
+      isVideoOn: isCameraOn,
+      isAdmin: false,
+      isFanClub: isUserFanClub,
+    });
+    setPartySeats(updated);
+    setActiveSeatInvitation(null);
+
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: `inv-accepted-${Date.now()}`,
+        user: 'TikTop Party 🎉',
+        avatar: '',
+        text: `🎉 ${invitation.invitedUserName} ले आमन्त्रण स्वीकार गरि Seat #${invitation.seatNumber} मा बस्नुभयो!`,
+        type: 'system',
+        timestamp: 'Just now',
+      },
+    ]);
+  };
+
+  // Audience declines seat invitation
+  const handleDeclineSeatInvite = () => {
+    setActiveSeatInvitation(null);
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: `inv-declined-${Date.now()}`,
+        user: 'TikTop Party',
+        avatar: '',
+        text: `सिट आमन्त्रण अस्वीकार गरियो।`,
+        type: 'system',
+        timestamp: 'Just now',
+      },
+    ]);
+  };
+
+  // Audience sends request to join a seat (in Approval Mode)
+  const handleRequestSeat = (seatNumber: number) => {
+    const currentUserName = userProfile?.name || 'You';
+
+    // Check ban
+    const activeBan = bannedUsers.find(
+      (b) => (b.userName === currentUserName || b.userName === 'You') && b.expiresAt > Date.now()
+    );
+    if (activeBan) {
+      alert('⚠️ तपाईंलाई प्रतिबन्ध लगाइएको छ, सिट अनुरोध पठाउन मिल्दैन।');
+      return;
+    }
+
+    const newReq: SeatJoinRequest = {
+      id: `req-${Date.now()}`,
+      userName: currentUserName,
+      userAvatar: userProfile?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
+      requestedSeatNumber: seatNumber,
+      isFanClub: isUserFanClub,
+      timestamp: Date.now(),
+    };
+
+    setSeatJoinRequests((prev) => [newReq, ...prev]);
+
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: `req-chat-${Date.now()}`,
+        user: 'TikTop Party 🙋',
+        avatar: '',
+        text: `🙋 ${currentUserName} ले Seat #${seatNumber} मा बस्न अनुरोध पठाउनुभयो।`,
+        type: 'system',
+        timestamp: 'Just now',
+      },
+    ]);
+  };
+
+  // Host/Admin approves a seat join request
+  const handleApproveRequest = (requestId: string) => {
+    const req = seatJoinRequests.find((r) => r.id === requestId);
+    if (req) {
+      const updated = assignUserToSeat(partySeats, req.requestedSeatNumber, {
+        userName: req.userName,
+        userAvatar: req.userAvatar,
+        isHost: false,
+        isVideoOn: true,
+        isFanClub: req.isFanClub,
+      });
+      setPartySeats(updated);
+      setSeatJoinRequests((prev) => prev.filter((r) => r.id !== requestId));
+
+      const actor = effectiveIsHost ? 'होस्ट' : 'एडमिन';
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: `req-appr-${Date.now()}`,
+          user: 'TikTop Moderation ✅',
+          avatar: '',
+          text: `✅ ${actor} ले ${req.userName} को सिट #${req.requestedSeatNumber} अनुरोध स्वीकृत गर्नुभयो!`,
+          type: 'system',
+          timestamp: 'Just now',
+        },
+      ]);
+    }
+  };
+
+  // Host/Admin declines a seat join request
+  const handleDeclineRequest = (requestId: string) => {
+    setSeatJoinRequests((prev) => prev.filter((r) => r.id !== requestId));
+  };
+
+  // Change party access mode (Free / Approval / FanClub)
+  const handleChangeAccessMode = (newMode: PartyAccessMode) => {
+    setPartyAccessMode(newMode);
+    const modeLabels: Record<PartyAccessMode, string> = {
+      free: 'खुला (सबै बस्न मिल्ने)',
+      approval: 'स्वीकृति प्रणाली (होस्ट वा एडमिनको स्वीकृति चाहिने)',
+      fanclub: 'फ्यानक्लब सदस्य मात्र बस्न मिल्ने',
+    };
+
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: `mode-change-${Date.now()}`,
+        user: 'TikTop Party ⚙️',
+        avatar: '',
+        text: `⚙️ सिट नियम परिवर्तन: ${modeLabels[newMode]}`,
         type: 'system',
         timestamp: 'Just now',
       },
@@ -686,12 +1192,27 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
             </div>
             <div className="flex flex-col">
               <div className="flex items-center gap-1">
-                <span className="text-xs font-bold truncate max-w-[90px]">{userProfile?.name || 'You (Host)'}</span>
+                <span className="text-xs font-bold truncate max-w-[80px]">{userProfile?.name || 'You (Host)'}</span>
                 <span className="bg-rose-500 text-[9px] font-extrabold px-1 rounded-sm uppercase tracking-tight">
                   LIVE
                 </span>
+                {/* Host Live Level Badge */}
+                <span
+                  className="bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 text-[9px] font-extrabold px-1.5 py-0.2 rounded-full flex items-center gap-0.5"
+                  title={`Live Level: Lv.${hostLiveLevel.level} (${hostLiveLevel.nepaliTitle})`}
+                >
+                  <span>🎙️</span>
+                  <span>Lv.{hostLiveLevel.level}</span>
+                </span>
               </div>
-              <span className="text-[10px] text-white/70">{formatTime(streamDuration)}</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-white/70">{formatTime(streamDuration)}</span>
+                <span className="text-white/30">•</span>
+                <span className="text-[9px] text-amber-300 font-bold flex items-center gap-0.5" title={`तपाईंको Wealth Level: Lv.${myWealthLevel.level}`}>
+                  <span>👑</span>
+                  <span>Wealth Lv.{myWealthLevel.level}</span>
+                </span>
+              </div>
             </div>
           </div>
 
@@ -741,53 +1262,28 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
           </div>
         </div>
 
-        {/* Live Reward Milestones Tracker Ticker */}
-        <div className="pt-0.5">
-          <button
-            type="button"
-            id="btn-open-live-reward-rules"
-            onClick={() => setIsRewardRulesOpen(true)}
-            className="w-full bg-gradient-to-r from-amber-950/80 via-black/80 to-rose-950/80 hover:from-amber-900/90 hover:to-rose-900/90 backdrop-blur-md border border-amber-500/35 rounded-xl px-2.5 py-1.5 flex items-center justify-between text-left transition-all active:scale-98 shadow-md group"
-          >
-            <div className="flex items-center gap-1.5 overflow-hidden">
-              <span className="flex items-center justify-center w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 text-xs shrink-0 animate-pulse">
-                🎁
-              </span>
-              <div className="flex flex-col truncate">
-                <div className="flex items-center gap-1">
-                  <span className="text-[11px] font-bold text-amber-300 truncate">
-                    {mode === 'face' ? (
-                      streamDuration < 3600 ? (
-                        `१ घण्टा रिवार्ड: १०,००० Pts (${Math.max(0, Math.ceil((3600 - streamDuration) / 60))}m बाँकी)`
-                      ) : streamDuration < 7200 ? (
-                        `२ घण्टा रिवार्ड: फेरि +१०,००० Pts (${Math.max(0, Math.ceil((7200 - streamDuration) / 60))}m बाँकी)`
-                      ) : (
-                        `🏆 २०,००० Pts प्राप्त! २ घण्टा सीमा पूरा (लाइभ जारी)`
-                      )
-                    ) : (
-                      streamDuration < 3600 ? (
-                        `पार्टी १ घण्टा रिवार्ड: २,००० Pts (${Math.max(0, Math.ceil((3600 - streamDuration) / 60))}m बाँकी)`
-                      ) : (
-                        `🏆 Party Live रिवार्ड (२००० Pts) प्राप्त! (लाइभ जारी)`
-                      )
-                    )}
-                  </span>
-                </div>
-                <span className="text-[9px] text-neutral-400">
-                  {mode === 'face'
-                    ? '२ घण्टा सम्म मात्र रिवार्ड • छिटो टेस्ट / नियम हेर्न थिच्नुहोस्'
-                    : '१ घण्टा मात्र रिवार्ड • छिटो टेस्ट / नियम हेर्न थिच्नुहोस्'}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1 shrink-0 ml-1">
-              <span className="text-[10px] font-bold text-amber-300 bg-amber-500/25 px-1.5 py-0.5 rounded-lg border border-amber-500/40 flex items-center gap-1">
-                <span>नियम</span>
-                <span className="text-[9px] text-white bg-rose-600 px-1 rounded font-bold">⚡Test</span>
-              </span>
-            </div>
-          </button>
+        {/* Live Reward Milestones Clean Tracker (सफा रिवार्ड ब्यानर - नियम/टेस्ट हटाइएको) */}
+        <div className="pt-0.5 flex items-center justify-between">
+          <div className="inline-flex items-center gap-1.5 bg-black/60 backdrop-blur-md border border-amber-500/30 rounded-full px-2.5 py-1 text-xs shadow-md">
+            <span className="text-amber-400 text-xs shrink-0 animate-pulse">🎁</span>
+            <span className="text-[11px] font-bold text-amber-300">
+              {mode === 'face' ? (
+                streamDuration < 3600 ? (
+                  `१ घण्टा रिवार्ड: १०,००० Pts (${Math.max(0, Math.ceil((3600 - streamDuration) / 60))} मिनेट बाँकी)`
+                ) : streamDuration < 7200 ? (
+                  `२ घण्टा रिवार्ड: फेरि +१०,००० Pts (${Math.max(0, Math.ceil((7200 - streamDuration) / 60))} मिनेट बाँकी)`
+                ) : (
+                  `🏆 २०,००० Pts प्राप्त! (२ घण्टा पूरा)`
+                )
+              ) : (
+                streamDuration < 3600 ? (
+                  `पार्टी १ घण्टा रिवार्ड: २,००० Pts (${Math.max(0, Math.ceil((3600 - streamDuration) / 60))} मिनेट बाँकी)`
+                ) : (
+                  `🏆 Party Live रिवार्ड प्राप्त!`
+                )
+              )}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -802,6 +1298,7 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
             onLeaveSeat={handleLeaveSeat}
             onToggleSeatMic={handleToggleSeatMic}
             onToggleSeatVideo={handleToggleSeatVideo}
+            onOpenGiftForSeat={handleOpenGiftForSeat}
             isHost={isHostStreamer}
             isCameraOn={isCameraOn}
             facingMode={facingMode}
@@ -849,19 +1346,20 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
       />
 
       {/* ================= BOTTOM SECTION: CHAT & CONTROLS ================= */}
-      <div id="live-room-bottom-section" className="relative z-20 px-3 pb-3 flex flex-col gap-2.5">
-        {/* Live Chat Box (Overlay) */}
+      {/* Positioned at the very bottom so face remains completely unobstructed */}
+      <div id="live-room-bottom-section" className="relative z-20 px-3 pb-3 mt-auto flex flex-col gap-2">
+        {/* Live Chat Box (Clean compact overlay at the bottom so face is not covered) */}
         <div
           ref={chatScrollRef}
           id="live-chat-scroll-area"
-          className="max-h-44 sm:max-h-48 overflow-y-auto space-y-1.5 pr-1 scrollbar-thin scrollbar-thumb-white/20"
+          className="max-h-20 sm:max-h-24 overflow-y-auto space-y-1 pr-1 scrollbar-thin scrollbar-thumb-white/20 select-text"
         >
           {chatMessages.map((msg) => {
             if (msg.type === 'system') {
               return (
                 <div
                   key={msg.id}
-                  className="inline-block max-w-[90%] bg-indigo-950/70 border border-indigo-500/30 text-indigo-200 text-xs px-2.5 py-1 rounded-xl backdrop-blur-md"
+                  className="inline-block max-w-[90%] bg-indigo-950/70 border border-indigo-500/30 text-indigo-200 text-[11px] px-2.5 py-0.5 rounded-lg backdrop-blur-md"
                 >
                   <span className="font-semibold text-indigo-300">📢 {msg.user}: </span>
                   <span>{msg.text}</span>
@@ -873,11 +1371,16 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
               return (
                 <div
                   key={msg.id}
-                  className="inline-flex items-center gap-1.5 max-w-[95%] bg-gradient-to-r from-amber-500/30 to-rose-500/30 border border-amber-400/40 text-white text-xs px-2.5 py-1 rounded-xl backdrop-blur-md shadow-md animate-bounce-short"
+                  className="inline-flex items-center gap-1.5 max-w-[95%] bg-gradient-to-r from-amber-500/30 to-rose-500/30 border border-amber-400/40 text-white text-[11px] px-2.5 py-0.5 rounded-lg backdrop-blur-md shadow-md animate-bounce-short"
                 >
+                  {msg.badge && (
+                    <span className="bg-gradient-to-r from-amber-400 to-yellow-500 text-neutral-950 font-black text-[9px] px-1.5 py-0.2 rounded-full shadow-sm">
+                      {msg.badge}
+                    </span>
+                  )}
                   <span className="font-bold text-amber-300">{msg.user}</span>
                   <span className="text-white/80">{msg.text}</span>
-                  <span className="text-lg">{msg.giftIcon}</span>
+                  <span className="text-sm">{msg.giftIcon}</span>
                 </div>
               );
             }
@@ -885,15 +1388,15 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
             return (
               <div
                 key={msg.id}
-                className="inline-flex items-start gap-1.5 max-w-[88%] bg-black/45 border border-white/10 text-xs px-2.5 py-1 rounded-xl backdrop-blur-md"
+                className="inline-flex items-start gap-1 max-w-[88%] bg-black/50 border border-white/10 text-[11px] px-2 py-0.5 rounded-lg backdrop-blur-md"
               >
                 {msg.badge && (
-                  <span className="bg-amber-500 text-black font-extrabold text-[9px] px-1 rounded-sm mt-0.5">
+                  <span className="bg-amber-500 text-black font-extrabold text-[8px] px-1 rounded-xs mt-0.5">
                     {msg.badge}
                   </span>
                 )}
                 <span className="font-bold text-rose-300 shrink-0">{msg.user}:</span>
-                <span className="text-white/95 break-words">{msg.text}</span>
+                <span className="text-white/90 break-words">{msg.text}</span>
               </div>
             );
           })}
@@ -1075,9 +1578,18 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
         isOpen={isGiftTrayOpen}
         userCoins={coinsBalance}
         userDiamonds={coinsBalance}
+        isPartyLive={isPartyLive}
+        partySeats={partySeats}
+        selectedRecipients={selectedPartyRecipients}
+        onSelectRecipients={setSelectedPartyRecipients}
         onClose={() => setIsGiftTrayOpen(false)}
         onSendGift={handleSendGift}
         onRechargeCoins={onOpenRechargeCoins}
+        onQuickAddTestCoins={() => {
+          const added = 100000;
+          if (onUpdateCoins) onUpdateCoins(coinsBalance + added);
+          else if (onUpdateDiamonds) onUpdateDiamonds(coinsBalance + added);
+        }}
         onRechargeDiamonds={onOpenRechargeCoins || (() => {
           if (onUpdateCoins) onUpdateCoins(coinsBalance + 500);
           else if (onUpdateDiamonds) onUpdateDiamonds(coinsBalance + 500);
@@ -1095,41 +1607,33 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
         onClose={() => setIsFilterSheetOpen(false)}
       />
 
-      {/* Exit Confirmation Dialog */}
-      {showExitConfirm && (
-        <div
-          id="exit-confirm-modal"
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
-        >
-          <div className="w-full max-w-xs bg-neutral-900 border border-white/15 rounded-3xl p-5 text-center shadow-2xl animate-scale-in">
-            <h4 className="text-base font-bold text-white mb-1">End Live Stream?</h4>
-            <p className="text-xs text-neutral-400 mb-5">
-              Are you sure you want to end this broadcast? Your viewers will be notified.
-            </p>
+      {/* Leave Live Room System Modal (लाइभ छोड्ने प्रणाली) */}
+      <LeaveLiveModal
+        isOpen={showExitConfirm}
+        isHost={isHostStreamer}
+        streamDuration={streamDuration}
+        viewersCount={viewersCount}
+        diamondsEarned={diamondsEarned}
+        likesCount={likesCount}
+        onConfirmEnd={() => {
+          setShowExitConfirm(false);
+          setShowSummary(true);
+        }}
+        onMinimize={() => {
+          setShowExitConfirm(false);
+          onExit();
+        }}
+        onCancel={() => setShowExitConfirm(false)}
+      />
 
-            <div className="flex flex-col gap-2">
-              <button
-                type="button"
-                id="btn-confirm-end-stream"
-                onClick={() => {
-                  setShowExitConfirm(false);
-                  setShowSummary(true);
-                }}
-                className="w-full py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-semibold text-sm transition-all active:scale-95 shadow-md"
-              >
-                End Now
-              </button>
-              <button
-                type="button"
-                id="btn-cancel-end-stream"
-                onClick={() => setShowExitConfirm(false)}
-                className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white font-medium text-sm transition-all"
-              >
-                Keep Streaming
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Level Up Celebration Popup Modal (वेल्थ लेभल वा लाइभ लेभल वृद्धि बधाई) */}
+      {levelUpData && (
+        <LevelUpCelebrationModal
+          isOpen={!!levelUpData}
+          type={levelUpData.type}
+          levelInfo={levelUpData.levelInfo}
+          onClose={() => setLevelUpData(null)}
+        />
       )}
 
       {/* Post-Stream Analytics Summary Modal */}

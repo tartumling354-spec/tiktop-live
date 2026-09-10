@@ -19,6 +19,7 @@ import {
   UserPlus,
   ChevronRight,
   KeyRound,
+  X,
 } from 'lucide-react';
 import { AuthUser, UserProfile, RegisteredAccount } from '../types';
 import {
@@ -27,12 +28,14 @@ import {
   findAccountByGoogleEmail,
   findAccountByFacebookName,
   findAccountByPhone,
+  findAccountByIdOrHandle,
   accountToAuthAndProfile,
 } from '../utils/authDb';
 
 interface AuthScreenProps {
   onAuthSuccess: (authUser: AuthUser, userProfile: UserProfile) => void;
   initialMode?: 'signup' | 'login';
+  onDismissOrSkip?: () => void;
 }
 
 interface CountryDial {
@@ -58,6 +61,7 @@ const COUNTRY_DIALS: CountryDial[] = [
 export const AuthScreen: React.FC<AuthScreenProps> = ({
   onAuthSuccess,
   initialMode = 'signup',
+  onDismissOrSkip,
 }) => {
   const [authMode, setAuthMode] = useState<'signup' | 'login'>(initialMode);
   const [activeProviderModal, setActiveProviderModal] = useState<'google' | 'facebook' | 'phone' | 'email' | null>(null);
@@ -75,7 +79,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
   // Google Modal State
   const [googleEmail, setGoogleEmail] = useState<string>('tartumling354@gmail.com');
-  const [googleName, setGoogleName] = useState<string>('Tara Tumling');
+  const [googleName, setGoogleName] = useState<string>('Shambu Lamsal');
   const [showCustomGoogleInput, setShowCustomGoogleInput] = useState<boolean>(false);
 
   // Facebook Modal State
@@ -98,6 +102,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
   // Registered accounts in storage
   const [registeredAccounts, setRegisteredAccounts] = useState<RegisteredAccount[]>([]);
+  const [directIdInput, setDirectIdInput] = useState<string>('');
 
   // Load registered accounts on mount
   useEffect(() => {
@@ -151,6 +156,13 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
       const { authUser, userProfile } = accountToAuthAndProfile(newAccount);
 
+      try {
+        localStorage.removeItem('tiktop_is_logged_out');
+        localStorage.setItem('tiktop_auth_user', JSON.stringify(authUser));
+        localStorage.setItem('tiktop_user_profile', JSON.stringify(userProfile));
+        localStorage.setItem('tiktop_last_active_user_id', authUser.id);
+      } catch {}
+
       // Show celebration card with generated ID and Welcome Bonus
       setCreatedUser({ authUser, userProfile });
     }, 800);
@@ -164,8 +176,39 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setTimeout(() => {
       setIsProcessing(false);
       const { authUser, userProfile } = accountToAuthAndProfile(account);
+      try {
+        localStorage.removeItem('tiktop_is_logged_out');
+        localStorage.setItem('tiktop_auth_user', JSON.stringify(authUser));
+        localStorage.setItem('tiktop_user_profile', JSON.stringify(userProfile));
+        localStorage.setItem('tiktop_last_active_user_id', authUser.id);
+      } catch {}
       onAuthSuccess(authUser, userProfile);
     }, 600);
+  };
+
+  // Direct ID Login handler
+  const handleDirectIdSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const query = directIdInput.trim();
+    if (!query) return;
+
+    const matched = findAccountByIdOrHandle(query);
+    if (matched) {
+      executeLogin(matched);
+    } else {
+      // If not in registered list, create/restore account with this exact ID so user can log in with their ID
+      const restoredAccount: RegisteredAccount = {
+        id: query.toUpperCase(),
+        name: `TikTop User ${query.toUpperCase()}`,
+        handle: `@${query.toLowerCase().replace(/[^a-z0-9]/g, '_')}`,
+        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+        bio: 'TikTop Creator 🌟',
+        provider: 'phone',
+        createdAt: new Date().toISOString(),
+      };
+      saveRegisteredAccount(restoredAccount);
+      executeLogin(restoredAccount);
+    }
   };
 
   // ==========================================
@@ -432,6 +475,29 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         </div>
       )}
 
+      {/* Quick Direct App Access / Skip Button */}
+      {onDismissOrSkip && (
+        <div className="w-full max-w-md flex items-center justify-between z-20 mb-2 mt-1">
+          <button
+            type="button"
+            id="btn-skip-to-app-top"
+            onClick={onDismissOrSkip}
+            className="flex items-center gap-1.5 text-xs bg-rose-600/90 hover:bg-rose-500 text-white font-black px-3.5 py-1.5 rounded-full border border-white/20 transition-all active:scale-95 shadow-lg"
+          >
+            <span>📱 सिधै TikTop एपमा जानुहोस् (Enter App Directly)</span>
+          </button>
+          <button
+            type="button"
+            id="btn-close-auth-screen"
+            onClick={onDismissOrSkip}
+            className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white/80 hover:text-white transition-all"
+            title="फर्कनुहोस् (Close)"
+          >
+            <X size={18} />
+          </button>
+        </div>
+      )}
+
       {/* Brand Header */}
       <div className="w-full max-w-md flex flex-col items-center text-center mt-2 sm:mt-4 shrink-0 relative z-10">
         <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-rose-500 via-pink-500 to-amber-500 flex items-center justify-center text-white shadow-xl shadow-rose-500/30 ring-4 ring-white/10 mb-2.5 animate-pulse">
@@ -516,10 +582,43 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         {/* Provider Selection View */}
         {!activeProviderModal ? (
           <div className="space-y-3">
+            {authMode === 'login' && (
+              <form
+                onSubmit={handleDirectIdSubmit}
+                className="p-3 bg-amber-500/10 border border-amber-500/35 rounded-2xl space-y-2 mb-3"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-amber-300 flex items-center gap-1.5">
+                    <KeyRound size={13} className="text-amber-400" />
+                    <span>TikTop ID बाट सिधै लगइन (ID Login):</span>
+                  </span>
+                  <span className="text-[10px] text-neutral-400">एक पटक लगइन गरे पुग्छ</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    id="input-direct-id-login"
+                    value={directIdInput}
+                    onChange={(e) => setDirectIdInput(e.target.value)}
+                    placeholder="तपाईंको TikTop ID (उदा. USR-12345)"
+                    className="flex-1 bg-black/60 border border-white/20 rounded-xl px-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-amber-400 font-mono font-bold"
+                  />
+                  <button
+                    type="submit"
+                    id="btn-submit-direct-id-login"
+                    disabled={!directIdInput.trim() || isProcessing}
+                    className="bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-neutral-950 font-black text-xs px-3.5 py-2 rounded-xl transition-all shadow shrink-0"
+                  >
+                    लगइन
+                  </button>
+                </div>
+              </form>
+            )}
+
             <span className="text-xs font-bold text-neutral-300 block mb-1">
               {authMode === 'signup'
                 ? 'माध्यम छनोट गर्नुहोस् (Choose Registration Method):'
-                : 'लगइन गर्ने माध्यम छनोट गर्नुहोस् (Choose Login Method):'}
+                : 'वा अन्य माध्यमबाट लगइन गर्नुहोस् (Other Login Methods):'}
             </span>
 
             {/* 1. Google Button */}

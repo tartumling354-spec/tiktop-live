@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { Screen, LiveMode, LiveStreamer, PostVideo, PartySeatCount, UserProfile, AppUser, AuthUser, RegisteredAccount } from './types';
 import { INITIAL_POST_VIDEOS, DEFAULT_USER_PROFILE, ALL_APP_USERS, EXPLORE_STREAMERS } from './data/mockData';
-import { accountToAuthAndProfile } from './utils/authDb';
+import { accountToAuthAndProfile, getRegisteredAccounts } from './utils/authDb';
 import { Navbar } from './components/Navbar';
 import { BottomNav } from './components/BottomNav';
 import { HomeFeed } from './components/HomeFeed';
@@ -29,7 +29,7 @@ export default function App() {
   // Navigation State
   const [currentScreen, setCurrentScreen] = useState<Screen>('home');
 
-  // Mandatory Authentication State (User must sign up / log in before using app)
+  // Mandatory Authentication State (User stays logged in persistently with Shambu Lamsal as default)
   const [authUser, setAuthUser] = useState<AuthUser | null>(() => {
     try {
       const saved = localStorage.getItem('tiktop_auth_user');
@@ -37,8 +37,35 @@ export default function App() {
         const parsed = JSON.parse(saved);
         if (parsed && parsed.id) return parsed;
       }
+      // Auto-restore session from last active ID or registered account so user never has to repeatedly log in
+      const lastActiveId = localStorage.getItem('tiktop_last_active_user_id');
+      const accounts = getRegisteredAccounts();
+      if (lastActiveId) {
+        const matched = accounts.find((a) => a.id === lastActiveId);
+        if (matched) {
+          const { authUser: restoredAuth, userProfile: restoredProfile } = accountToAuthAndProfile(matched);
+          localStorage.setItem('tiktop_auth_user', JSON.stringify(restoredAuth));
+          localStorage.setItem('tiktop_user_profile', JSON.stringify(restoredProfile));
+          return restoredAuth;
+        }
+      }
+      if (accounts && accounts.length > 0) {
+        const primary = accounts[0];
+        const { authUser: restoredAuth, userProfile: restoredProfile } = accountToAuthAndProfile(primary);
+        localStorage.setItem('tiktop_auth_user', JSON.stringify(restoredAuth));
+        localStorage.setItem('tiktop_user_profile', JSON.stringify(restoredProfile));
+        localStorage.setItem('tiktop_last_active_user_id', primary.id);
+        return restoredAuth;
+      }
     } catch {
       // Ignore
+    }
+    // Reliable fallback so App is ALWAYS visible immediately
+    const fallbackAccounts = getRegisteredAccounts();
+    const primary = fallbackAccounts[0];
+    if (primary) {
+      const { authUser: restoredAuth } = accountToAuthAndProfile(primary);
+      return restoredAuth;
     }
     return null;
   });
@@ -129,11 +156,18 @@ export default function App() {
   const [userCoins, setUserCoins] = useState<number>(() => {
     try {
       const savedCoins = localStorage.getItem('tiktop_coins');
-      if (savedCoins) return parseInt(savedCoins, 10);
+      if (savedCoins) {
+        const parsed = parseInt(savedCoins, 10);
+        if (parsed > 0) return parsed;
+      }
       const oldDiamonds = localStorage.getItem('tiktop_diamonds');
-      return oldDiamonds ? parseInt(oldDiamonds, 10) : 500;
+      if (oldDiamonds) {
+        const parsed = parseInt(oldDiamonds, 10);
+        if (parsed > 0) return parsed;
+      }
+      return 500000;
     } catch {
-      return 500;
+      return 500000;
     }
   });
 
@@ -279,8 +313,10 @@ export default function App() {
     setAuthUser(newAuthUser);
     setUserProfile(newProfile);
     try {
+      localStorage.removeItem('tiktop_is_logged_out');
       localStorage.setItem('tiktop_auth_user', JSON.stringify(newAuthUser));
       localStorage.setItem('tiktop_user_profile', JSON.stringify(newProfile));
+      localStorage.setItem('tiktop_last_active_user_id', newAuthUser.id);
     } catch {
       // Ignore
     }
@@ -299,6 +335,7 @@ export default function App() {
 
   const handleLogout = () => {
     try {
+      localStorage.setItem('tiktop_is_logged_out', 'true');
       localStorage.removeItem('tiktop_auth_user');
     } catch {
       // Ignore
@@ -312,6 +349,7 @@ export default function App() {
 
   const handleSwitchAccount = (mode: 'login' | 'signup' = 'login') => {
     try {
+      localStorage.setItem('tiktop_is_logged_out', 'true');
       localStorage.removeItem('tiktop_auth_user');
     } catch {
       // Ignore
@@ -326,8 +364,10 @@ export default function App() {
     setAuthUser(newAuthUser);
     setUserProfile(newProfile);
     try {
+      localStorage.removeItem('tiktop_is_logged_out');
       localStorage.setItem('tiktop_auth_user', JSON.stringify(newAuthUser));
       localStorage.setItem('tiktop_user_profile', JSON.stringify(newProfile));
+      localStorage.setItem('tiktop_last_active_user_id', newAuthUser.id);
     } catch {
       // Ignore
     }
@@ -335,9 +375,22 @@ export default function App() {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  // MANDATORY AUTH GATE: User must create an account / sign in before using the app
+  // MANDATORY AUTH GATE: User can sign in, register or skip directly to app
   if (!authUser) {
-    return <AuthScreen onAuthSuccess={handleAuthSuccess} initialMode={authInitialMode} />;
+    const handleSkipToApp = () => {
+      const accounts = getRegisteredAccounts();
+      const primary = accounts[0];
+      const { authUser: restoredAuth, userProfile: restoredProfile } = accountToAuthAndProfile(primary);
+      setAuthUser(restoredAuth);
+      setUserProfile(restoredProfile);
+    };
+    return (
+      <AuthScreen
+        onAuthSuccess={handleAuthSuccess}
+        initialMode={authInitialMode}
+        onDismissOrSkip={handleSkipToApp}
+      />
+    );
   }
 
   // If in Live Room, render the full-screen immersive Live Room View

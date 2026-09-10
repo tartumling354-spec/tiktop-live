@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Coins, Award, ShieldCheck, Settings, Film, Play, Heart, MessageSquare, Edit3, Camera, Copy, Check, LogOut } from 'lucide-react';
+import { Coins, Award, ShieldCheck, Settings, Film, Play, Heart, MessageSquare, Edit3, Camera, Copy, Check, LogOut, Crown, Sparkles, TrendingUp } from 'lucide-react';
 import { LiveMode, PostVideo, UserProfile, AuthUser, RegisteredAccount } from '../types';
 import { EditProfileModal } from './EditProfileModal';
 import { AppSettingsModal } from './AppSettingsModal';
+import { getStoredWealthTotal, calculateWealthLevel, getStoredLiveTotal, calculateLiveLevel } from '../utils/levelSystem';
 
 interface ProfileViewProps {
   userCoins?: number;
@@ -61,6 +62,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     setCopiedMyId(true);
     setTimeout(() => setCopiedMyId(false), 2000);
   };
+
+  const wealthTotal = getStoredWealthTotal();
+  const wealthInfo = calculateWealthLevel(wealthTotal);
+  const liveTotal = getStoredLiveTotal();
+  const liveInfo = calculateLiveLevel(liveTotal);
 
   return (
     <div id="profile-screen" className="flex-1 overflow-y-auto pb-24 max-w-2xl mx-auto w-full px-4 pt-3">
@@ -197,6 +203,107 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             <div>
               <span className="block text-sm font-bold text-white">86.2K</span>
               <span className="text-[10px] text-neutral-400 uppercase">Likes</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* User Levels: Wealth Level (Gifting) & Live Level (Receiving Gifts) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+        {/* 1. Wealth Level (गिफ्टिङ स्तर - अरुलाई उपहार पठाउँदा बढ्ने) */}
+        <div
+          id="profile-wealth-level-card"
+          className="bg-gradient-to-br from-neutral-900 via-amber-950/20 to-neutral-900 border border-amber-400/30 rounded-2xl p-3.5 shadow-lg relative overflow-hidden"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <div className={`w-9 h-9 rounded-xl bg-gradient-to-tr ${wealthInfo.badgeGradient} border border-white/20 flex items-center justify-center text-lg shadow-md`}>
+                {wealthInfo.icon}
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-black text-amber-300">Wealth Lv.{wealthInfo.level}</span>
+                  <span className="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.2 rounded-md font-bold border border-amber-500/30">
+                    {wealthInfo.nepaliTitle}
+                  </span>
+                </div>
+                <span className="text-[10px] text-neutral-400">गिफ्टिङ स्तर (Gifting Level)</span>
+              </div>
+            </div>
+            <Crown size={18} className="text-amber-400 opacity-80" />
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-neutral-400">कुल पठाएको उपहार:</span>
+              <span className="font-bold text-amber-300 font-mono">{wealthTotal.toLocaleString()} Coins</span>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="w-full bg-black/50 rounded-full h-2 overflow-hidden border border-white/10">
+              <div
+                className="bg-gradient-to-r from-amber-500 via-yellow-400 to-rose-500 h-full rounded-full transition-all duration-500"
+                style={{ width: `${wealthInfo.progress}%` }}
+              />
+            </div>
+
+            <div className="flex items-center justify-between text-[10px] text-neutral-400">
+              <span>{wealthInfo.minVal.toLocaleString()}</span>
+              <span className="text-amber-300/90 font-semibold">
+                {wealthInfo.level >= 10
+                  ? 'अधिकतम स्तर (Max Level)'
+                  : `Lv.${wealthInfo.level + 1} को लागि ${(wealthInfo.nextVal - wealthTotal).toLocaleString()} बाँकी`}
+              </span>
+              <span>{wealthInfo.nextVal.toLocaleString()}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* 2. Live Level (लाइभ स्तर - उपहार पाउँदा बढ्ने) */}
+        <div
+          id="profile-live-level-card"
+          className="bg-gradient-to-br from-neutral-900 via-emerald-950/20 to-neutral-900 border border-emerald-400/30 rounded-2xl p-3.5 shadow-lg relative overflow-hidden"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <div className={`w-9 h-9 rounded-xl bg-gradient-to-tr ${liveInfo.badgeGradient} border border-white/20 flex items-center justify-center text-lg shadow-md`}>
+                {liveInfo.icon}
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-black text-emerald-300">Live Lv.{liveInfo.level}</span>
+                  <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.2 rounded-md font-bold border border-emerald-500/30">
+                    {liveInfo.nepaliTitle}
+                  </span>
+                </div>
+                <span className="text-[10px] text-neutral-400">लाइभ होस्ट स्तर (Live Streamer Level)</span>
+              </div>
+            </div>
+            <Sparkles size={18} className="text-emerald-400 opacity-80" />
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-neutral-400">कुल पाएको उपहार:</span>
+              <span className="font-bold text-emerald-300 font-mono">{liveTotal.toLocaleString()} Points</span>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="w-full bg-black/50 rounded-full h-2 overflow-hidden border border-white/10">
+              <div
+                className="bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-500 h-full rounded-full transition-all duration-500"
+                style={{ width: `${liveInfo.progress}%` }}
+              />
+            </div>
+
+            <div className="flex items-center justify-between text-[10px] text-neutral-400">
+              <span>{liveInfo.minVal.toLocaleString()}</span>
+              <span className="text-emerald-300/90 font-semibold">
+                {liveInfo.level >= 10
+                  ? 'अधिकतम स्तर (Max Level)'
+                  : `Lv.${liveInfo.level + 1} को लागि ${(liveInfo.nextVal - liveTotal).toLocaleString()} बाँकी`}
+              </span>
+              <span>{liveInfo.nextVal.toLocaleString()}</span>
             </div>
           </div>
         </div>

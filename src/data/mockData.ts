@@ -1,15 +1,7 @@
 import { Gift, LiveStreamer, PartySeat, PostVideo, PartySeatCount, UserProfile, AppUser } from '../types';
+import { ALL_GIFTS } from './giftsData';
 
-export const INITIAL_GIFTS: Gift[] = [
-  { id: 'g1', name: 'Rose', icon: '🌹', coins: 1, diamonds: 1, effect: 'petals' },
-  { id: 'g2', name: 'Love Heart', icon: '💖', coins: 5, diamonds: 5, effect: 'hearts' },
-  { id: 'g3', name: 'Fire Blast', icon: '🔥', coins: 10, diamonds: 10, effect: 'fire' },
-  { id: 'g4', name: 'Party Popper', icon: '🎉', coins: 25, diamonds: 25, effect: 'confetti' },
-  { id: 'g5', name: 'Golden Crown', icon: '👑', coins: 99, diamonds: 99, effect: 'crown' },
-  { id: 'g6', name: 'Sports Car', icon: '🏎️', coins: 299, diamonds: 299, effect: 'car' },
-  { id: 'g7', name: 'Galaxy Rocket', icon: '🚀', coins: 599, diamonds: 599, effect: 'rocket' },
-  { id: 'g8', name: 'Majestic Lion', icon: '🦁', coins: 999, diamonds: 999, effect: 'lion' },
-];
+export const INITIAL_GIFTS: Gift[] = ALL_GIFTS;
 
 export const EXPLORE_STREAMERS: LiveStreamer[] = [
   {
@@ -97,12 +89,22 @@ export function assignUserToSeat(
     userName: string;
     userAvatar: string;
     isHost?: boolean;
+    isAdmin?: boolean;
+    isFanClub?: boolean;
     isVideoOn?: boolean;
     videoUrl?: string;
   }
 ): PartySeat[] {
-  // 1. Clear any seat this user was previously sitting in
+  // Seat #1 is permanently reserved for the Host
+  if (targetSeatNumber === 1 && !user.isHost) {
+    return seats;
+  }
+
+  // 1. Clear any seat this user was previously sitting in (host seat 1 cannot be vacated by moving)
   const cleaned = seats.map((s) => {
+    if (s.seatNumber === 1 && s.isHost) {
+      return s; // Keep host on seat 1
+    }
     if (s.isOccupied && s.userName === user.userName) {
       return {
         ...s,
@@ -110,6 +112,8 @@ export function assignUserToSeat(
         userName: undefined,
         userAvatar: undefined,
         isHost: false,
+        isAdmin: false,
+        isFanClub: false,
         isSpeaking: false,
         isMuted: false,
         isVideoOn: false,
@@ -128,6 +132,8 @@ export function assignUserToSeat(
         userName: user.userName,
         userAvatar: user.userAvatar,
         isHost: user.isHost ?? false,
+        isAdmin: user.isAdmin ?? false,
+        isFanClub: user.isFanClub ?? false,
         isSpeaking: false,
         isMuted: false,
         isVideoOn: user.isVideoOn ?? true,
@@ -140,22 +146,22 @@ export function assignUserToSeat(
 
 /**
  * Generates or adapts Party Seats for 4, 6, 9, 16, or 25 seats.
- * Preserves existing occupants while enforcing strictly 1 seat per person.
+ * Preserves existing occupants while enforcing strictly 1 seat per person and Host on Seat 1.
  */
 export function generatePartySeats(
   count: PartySeatCount,
   existingSeats?: PartySeat[]
 ): PartySeat[] {
   const sampleGuests = [
-    { userName: 'You (Host)', userAvatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80', isHost: true, isVideoOn: true, isSpeaking: true },
-    { userName: 'Pabitra K.', userAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80', isHost: false, isVideoOn: true, videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-girl-dancing-happy-in-the-street-41551-large.mp4', isSpeaking: false },
-    { userName: 'Bipin_07', userAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80', isHost: false, isVideoOn: false, isSpeaking: true },
-    { userName: 'Simran_X', userAvatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&auto=format&fit=crop&q=80', isHost: false, isVideoOn: false, isMuted: true },
-    { userName: 'Aayush_NP', userAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80', isHost: false, isVideoOn: true, videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-young-man-playing-acoustic-guitar-at-home-43206-large.mp4' },
-    { userName: 'Kritika_K', userAvatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80', isHost: false, isVideoOn: false },
-    { userName: 'Rohan_Play', userAvatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150&auto=format&fit=crop&q=80', isHost: false, isVideoOn: true, videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-young-woman-skater-riding-her-skateboard-41604-large.mp4' },
-    { userName: 'Sunita_G', userAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80', isHost: false, isVideoOn: false },
-    { userName: 'Anjali_R', userAvatar: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150&auto=format&fit=crop&q=80', isHost: false, isVideoOn: true, videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4' },
+    { userName: 'You (Host)', userAvatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80', isHost: true, isAdmin: true, isFanClub: true, isVideoOn: true, isSpeaking: true },
+    { userName: 'Pabitra K.', userAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80', isHost: false, isAdmin: false, isFanClub: true, isVideoOn: true, videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-girl-dancing-happy-in-the-street-41551-large.mp4', isSpeaking: false },
+    { userName: 'Bipin_07', userAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80', isHost: false, isAdmin: true, isFanClub: true, isVideoOn: false, isSpeaking: true },
+    { userName: 'Simran_X', userAvatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&auto=format&fit=crop&q=80', isHost: false, isAdmin: false, isFanClub: false, isVideoOn: false, isMuted: true },
+    { userName: 'Aayush_NP', userAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80', isHost: false, isAdmin: false, isFanClub: true, isVideoOn: true, videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-young-man-playing-acoustic-guitar-at-home-43206-large.mp4' },
+    { userName: 'Kritika_K', userAvatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80', isHost: false, isAdmin: false, isFanClub: false, isVideoOn: false },
+    { userName: 'Rohan_Play', userAvatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150&auto=format&fit=crop&q=80', isHost: false, isAdmin: false, isFanClub: false, isVideoOn: true, videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-young-woman-skater-riding-her-skateboard-41604-large.mp4' },
+    { userName: 'Sunita_G', userAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80', isHost: false, isAdmin: false, isFanClub: true, isVideoOn: false },
+    { userName: 'Anjali_R', userAvatar: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150&auto=format&fit=crop&q=80', isHost: false, isAdmin: false, isFanClub: true, isVideoOn: true, videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4' },
   ];
 
   const result: PartySeat[] = [];
@@ -214,6 +220,8 @@ export function generatePartySeats(
       result.push({ id: 5, seatNumber: 5, isOccupied: true, ...sampleGuests[3] });
     } else if (i === 7 && count >= 9) {
       result.push({ id: 7, seatNumber: 7, isOccupied: true, ...sampleGuests[4] });
+    } else if (i === 8 && count >= 9) {
+      result.push({ id: 8, seatNumber: 8, isOccupied: true, ...sampleGuests[7] });
     } else if (i === 10 && count >= 16) {
       result.push({ id: 10, seatNumber: 10, isOccupied: true, ...sampleGuests[5] });
     } else if (i === 12 && count >= 16) {

@@ -148,7 +148,7 @@ export const OFFICIAL_DEVELOPER_MERCHANTS: Record<string, MerchantPaymentTarget>
     name: 'eSewa Official Wallet',
     accountNumber: '9863991384',
     displayAccount: '+977 9863991384',
-    accountHolder: 'TikTop Official Developer',
+    accountHolder: 'Shambu Lamsal',
     remarksNote: 'रिमार्क्समा आफ्नो TikTop ID अनिवार्य लेख्नुहोस्',
   },
   khalti: {
@@ -156,7 +156,7 @@ export const OFFICIAL_DEVELOPER_MERCHANTS: Record<string, MerchantPaymentTarget>
     name: 'Khalti Official Wallet',
     accountNumber: '9810465055',
     displayAccount: '+977 9810465055',
-    accountHolder: 'TikTop Official Developer',
+    accountHolder: 'Shambu Lamsal',
     remarksNote: 'रिमार्क्समा आफ्नो TikTop ID अनिवार्य लेख्नुहोस्',
   },
   bank_np: {
@@ -165,8 +165,8 @@ export const OFFICIAL_DEVELOPER_MERCHANTS: Record<string, MerchantPaymentTarget>
     bankName: 'Nabil Bank Ltd.',
     accountNumber: '04110017507343',
     displayAccount: '04110017507343',
-    accountHolder: 'TikTop Official Developer',
-    branch: 'Kathmandu Main Branch',
+    accountHolder: 'Shambu Lamsal',
+    branch: 'Tumlingtar Branch',
     remarksNote: 'बैंक भौचर वा ट्रान्सफरमा TikTop ID लेख्नुहोस्',
   },
   connectips: {
@@ -175,8 +175,8 @@ export const OFFICIAL_DEVELOPER_MERCHANTS: Record<string, MerchantPaymentTarget>
     bankName: 'Nabil Bank Ltd.',
     accountNumber: '04110017507343',
     displayAccount: '04110017507343',
-    accountHolder: 'TikTop Official Developer',
-    branch: 'Kathmandu Main Branch',
+    accountHolder: 'Shambu Lamsal',
+    branch: 'Tumlingtar Branch',
     remarksNote: 'बैंक भौचर वा ट्रान्सफरमा TikTop ID लेख्नुहोस्',
   },
   imepay: {
@@ -184,7 +184,7 @@ export const OFFICIAL_DEVELOPER_MERCHANTS: Record<string, MerchantPaymentTarget>
     name: 'IME Pay Official',
     accountNumber: '9810465055',
     displayAccount: '+977 9810465055',
-    accountHolder: 'TikTop Official Developer',
+    accountHolder: 'Shambu Lamsal',
     remarksNote: 'रिमार्क्समा TikTop ID लेख्नुहोस्',
   },
   card_np: {
@@ -193,7 +193,7 @@ export const OFFICIAL_DEVELOPER_MERCHANTS: Record<string, MerchantPaymentTarget>
     bankName: 'Nabil Bank Ltd.',
     accountNumber: '04110017507343',
     displayAccount: '04110017507343',
-    accountHolder: 'TikTop Official Developer',
+    accountHolder: 'Shambu Lamsal',
     remarksNote: 'Nabil Bank Card Transfer',
   },
   card_intl: {
@@ -202,8 +202,8 @@ export const OFFICIAL_DEVELOPER_MERCHANTS: Record<string, MerchantPaymentTarget>
     bankName: 'Nabil Bank International Card Gateway',
     accountNumber: '04110017507343',
     displayAccount: 'Visa / MasterCard / Amex (Nabil Bank Settlement: 04110017507343)',
-    accountHolder: 'TikTop Official Developer',
-    branch: 'Kathmandu Main Branch',
+    accountHolder: 'Shambu Lamsal',
+    branch: 'Tumlingtar Branch',
     remarksNote: 'अन्तर्राष्ट्रिय कार्डबाट सुरक्षित भुक्तानी (256-Bit SSL)',
   },
   nabil_direct: {
@@ -212,8 +212,8 @@ export const OFFICIAL_DEVELOPER_MERCHANTS: Record<string, MerchantPaymentTarget>
     bankName: 'Nabil Bank Limited (नबिल बैंक लि., नेपाल)',
     accountNumber: '04110017507343',
     displayAccount: '04110017507343 (SWIFT: NABILNPKA)',
-    accountHolder: 'TikTop Official Developer',
-    branch: 'Kathmandu Main Branch, Nepal',
+    accountHolder: 'Shambu Lamsal',
+    branch: 'Tumlingtar Branch, Nepal',
     remarksNote: 'विदेशबाट सिधै नबिल बैंक खातामा रेमिट्यान्स वा स्वीफ्ट (SWIFT) पठाउनुहोस्',
   },
   phonepe: {
@@ -280,8 +280,8 @@ export const OFFICIAL_DEVELOPER_MERCHANTS: Record<string, MerchantPaymentTarget>
     bankName: 'Nabil Bank Ltd. (SWIFT: NABILNPKA)',
     accountNumber: '04110017507343',
     displayAccount: '04110017507343 (SWIFT: NABILNPKA)',
-    accountHolder: 'TikTop Official Developer',
-    branch: 'Kathmandu Central Branch',
+    accountHolder: 'Shambu Lamsal',
+    branch: 'Tumlingtar Branch',
     remarksNote: 'Include TikTop ID in sender message / reference',
   },
   gcash: {

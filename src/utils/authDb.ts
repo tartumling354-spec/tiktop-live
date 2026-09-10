@@ -6,12 +6,12 @@ const DB_KEY = 'tiktop_registered_users_db';
 const SEED_ACCOUNTS: RegisteredAccount[] = [
   {
     id: 'USR-35400',
-    name: 'Tara Tumling',
+    name: 'Shambu Lamsal',
     handle: '@tartumling354',
     email: 'tartumling354@gmail.com',
     provider: 'google',
     avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200&auto=format&fit=crop&q=80',
-    bio: 'Official TikTop Live Creator 🌟',
+    bio: 'Official TikTop Live Creator 🌟 (Tumlingtar)',
     createdAt: new Date().toISOString(),
   },
   {
@@ -92,6 +92,20 @@ export const findAccountByGoogleEmail = (email: string): RegisteredAccount | und
   const all = getRegisteredAccounts();
   const target = email.trim().toLowerCase();
   return all.find((u) => u.email?.trim().toLowerCase() === target);
+};
+
+/**
+ * Find registered account by User ID (e.g. USR-35400) or handle (@username)
+ */
+export const findAccountByIdOrHandle = (query: string): RegisteredAccount | undefined => {
+  const all = getRegisteredAccounts();
+  const clean = query.trim().toLowerCase();
+  return all.find(
+    (u) =>
+      u.id.toLowerCase() === clean ||
+      u.handle.toLowerCase() === clean ||
+      `@${u.handle.toLowerCase().replace(/^@/, '')}` === clean
+  );
 };
 
 /**

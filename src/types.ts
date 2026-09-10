@@ -67,16 +67,54 @@ export interface ChatMessage {
   timestamp: string;
 }
 
+export type GiftCategory = 'regular' | 'daily' | 'lucky' | 'custom' | 'event';
+
 export interface Gift {
   id: string;
   name: string;
+  nepaliName?: string;
   icon: string;
   coins?: number;
   diamonds: number;
+  points?: number;
   effect: string;
+  category?: GiftCategory;
+  badge?: string;
 }
 
 export type PartySeatCount = 4 | 6 | 9 | 16 | 25;
+
+export type PartyAccessMode = 'free' | 'approval' | 'fanclub';
+
+export interface BannedUser {
+  id: string;
+  userId: string;
+  userName: string;
+  userAvatar?: string;
+  bannedAt: number;
+  expiresAt: number; // 30 minutes in ms
+  bannedBy: string; // 'Host' or 'Admin'
+  reason?: string;
+}
+
+export interface SeatJoinRequest {
+  id: string;
+  seatNumber: number;
+  userId: string;
+  userName: string;
+  userAvatar: string;
+  isFanClub?: boolean;
+  requestedAt: number;
+}
+
+export interface SeatInvitation {
+  id: string;
+  seatNumber: number;
+  invitedBy: string; // 'Admin' or 'Host'
+  invitedUserName: string;
+  invitedUserAvatar: string;
+  timestamp: number;
+}
 
 export interface PartySeat {
   id: number;
@@ -87,8 +125,17 @@ export interface PartySeat {
   isMuted?: boolean;
   isSpeaking?: boolean;
   isHost?: boolean;
+  isAdmin?: boolean;
+  isFanClub?: boolean;
   isVideoOn?: boolean;
   videoUrl?: string;
+  pointsEarned?: number;
+  recentGiftEffect?: {
+    giftIcon: string;
+    giftName: string;
+    points: number;
+    timestamp: number;
+  };
 }
 
 export interface LiveStreamer {
