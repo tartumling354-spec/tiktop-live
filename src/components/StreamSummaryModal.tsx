@@ -60,7 +60,7 @@ export const StreamSummaryModal: React.FC<StreamSummaryModalProps> = ({
 
           <div className="bg-white/5 border border-white/10 rounded-2xl p-3 flex flex-col items-center">
             <Users size={18} className="text-sky-400 mb-1" />
-            <span className="text-lg font-bold">{viewerCount.toLocaleString()}</span>
+            <span className="text-lg font-bold">{viewerCount > 0 ? viewerCount.toLocaleString() : '०'}</span>
             <span className="text-[11px] text-neutral-400">Peak Viewers</span>
           </div>
 

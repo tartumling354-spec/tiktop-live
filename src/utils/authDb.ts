@@ -6,7 +6,7 @@ const DB_KEY = 'tiktop_registered_users_db';
 const SEED_ACCOUNTS: RegisteredAccount[] = [
   {
     id: 'USR-35400',
-    name: 'Shambu Lamsal',
+    name: 'tar tumling',
     handle: '@tartumling354',
     email: 'tartumling354@gmail.com',
     provider: 'google',
@@ -77,6 +77,32 @@ export const saveRegisteredAccount = (account: RegisteredAccount): RegisteredAcc
   });
 
   const updated = [account, ...filtered];
+  try {
+    localStorage.setItem(DB_KEY, JSON.stringify(updated));
+  } catch {
+    // Ignore
+  }
+  return updated;
+};
+
+/**
+ * Update an existing registered account's profile details (name, handle, bio, avatar) in the database
+ */
+export const updateRegisteredAccount = (
+  accountId: string,
+  updates: Partial<RegisteredAccount>
+): RegisteredAccount[] => {
+  const all = getRegisteredAccounts();
+  const updated = all.map((account) => {
+    if (account.id === accountId) {
+      return {
+        ...account,
+        ...updates,
+      };
+    }
+    return account;
+  });
+
   try {
     localStorage.setItem(DB_KEY, JSON.stringify(updated));
   } catch {

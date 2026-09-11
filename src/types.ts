@@ -88,7 +88,7 @@ export type PartyAccessMode = 'free' | 'approval' | 'fanclub';
 
 export interface BannedUser {
   id: string;
-  userId: string;
+  userId?: string;
   userName: string;
   userAvatar?: string;
   bannedAt: number;
@@ -100,11 +100,13 @@ export interface BannedUser {
 export interface SeatJoinRequest {
   id: string;
   seatNumber: number;
-  userId: string;
+  requestedSeatNumber?: number;
+  userId?: string;
   userName: string;
   userAvatar: string;
   isFanClub?: boolean;
-  requestedAt: number;
+  requestedAt?: number;
+  timestamp?: number;
 }
 
 export interface SeatInvitation {

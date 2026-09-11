@@ -410,7 +410,7 @@ export const GiftTray: React.FC<GiftTrayProps> = ({
             {selectedCategory === 'daily' && (
               <>
                 <Heart size={13} className="text-pink-400" />
-                <span>Daily & Love Gifts • Hi, Good Morning, Kiss, I Love You, I Miss You आदि दैनिक उपयोगी उपहार</span>
+                <span>Daily & Love Gifts • Hi (500), Good Morning/Night (1k), I Miss You (2k), Kiss You (5k), I Love You (10k), Sweet Hug (15k), Forever Love/Hug (20k)</span>
               </>
             )}
             {selectedCategory === 'lucky' && (

@@ -39,9 +39,12 @@ import { StreamSummaryModal } from './StreamSummaryModal';
 import { LeaveLiveModal } from './LeaveLiveModal';
 import { LevelUpCelebrationModal } from './LevelUpCelebrationModal';
 import { CountdownOverlay } from './CountdownOverlay';
-import { LiveRewardCelebrationModal } from './LiveRewardCelebrationModal';
-import { LiveRewardRulesModal } from './LiveRewardRulesModal';
 import { SeatInvitePrompt } from './SeatInviteModal';
+import {
+  getTodayLiveSeconds,
+  saveTodayLiveSeconds,
+  getNepalDateString,
+} from '../utils/liveDurationManager';
 import { INITIAL_PARTY_SEATS, generatePartySeats, assignUserToSeat } from '../data/mockData';
 import {
   getStoredWealthTotal,
@@ -122,9 +125,9 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
   const [filter, setFilter] = useState<VideoFilter>('none');
   const [isPartyAudioActive, setIsPartyAudioActive] = useState<boolean>(true);
 
-  // Audience & Activity State
-  const [viewersCount, setViewersCount] = useState<number>(mode === 'party' ? 840 : 520);
-  const [likesCount, setLikesCount] = useState<number>(142);
+  // Audience & Activity State (only shown when actual viewers arrive)
+  const [viewersCount, setViewersCount] = useState<number>(0);
+  const [likesCount, setLikesCount] = useState<number>(0);
   const [diamondsEarned, setDiamondsEarned] = useState<number>(0);
 
   // Dynamic Party Seater Count & Seats (4, 6, 9, 16, 25 Seats)
@@ -176,12 +179,15 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
   );
   const [showExitConfirm, setShowExitConfirm] = useState<boolean>(false);
   const [showSummary, setShowSummary] = useState<boolean>(false);
-  const [streamDuration, setStreamDuration] = useState<number>(0);
+  const currentHostId = userProfile?.userId || userProfile?.handle || 'host';
 
-  // Live Duration Rewards State & Tracking
-  // Rule: Face Live 1 hr -> 10,000 pts, 2 hr -> 10,000 pts (capped at 2 hr, max 20,000 pts)
-  // Rule: Party Live 1 hr -> 2,000 pts, 2 hr -> 2,000 pts (capped at 2 hr, max 4,000 pts)
-  // After cap, live stream can continue unlimited without further rewards!
+  // Live stream duration tracking:
+  // Continues from today's previous sessions; resets to 0 at 12:00 AM Midnight Nepal Time
+  const [streamDuration, setStreamDuration] = useState<number>(() => {
+    return isHostStreamer ? getTodayLiveSeconds(currentHostId) : 0;
+  });
+  const lastRecordedNepalDate = useRef<string>(getNepalDateString());
+
   const [claimedMilestones, setClaimedMilestones] = useState<{
     faceHour1: boolean;
     faceHour2: boolean;
@@ -195,14 +201,6 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
   });
 
   const [liveDurationRewardPoints, setLiveDurationRewardPoints] = useState<number>(0);
-  const [isRewardRulesOpen, setIsRewardRulesOpen] = useState<boolean>(false);
-  const [activeRewardAlert, setActiveRewardAlert] = useState<{
-    points: number;
-    title: string;
-    titleNep: string;
-    description: string;
-    isCapReached: boolean;
-  } | null>(null);
 
   // User diamonds ref to avoid stale closures during milestone payouts
   const userDiamondsRef = useRef(userDiamonds);
@@ -237,52 +235,46 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
     }
   };
 
-  // Chat stream
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    {
-      id: 'm1',
-      user: 'TikTop System',
-      avatar: '',
-      text: `Live broadcast ready! Mode: ${mode === 'face' ? 'Face Live' : 'Party Live'}. Welcome viewers!`,
-      type: 'system',
-      timestamp: 'Just now',
-    },
-    {
-      id: 'm2',
-      user: 'Aayush',
-      avatar: SAMPLE_FAN_AVATARS[0],
-      text: 'Hey! Glad you are live! 💖',
-      type: 'normal',
-      timestamp: 'Just now',
-    },
-  ]);
+  // Chat stream (clean, empty by default so unnecessary comments are not displayed)
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [commentInput, setCommentInput] = useState<string>('');
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
   // Countdown completion handler
   const handleCountdownComplete = () => {
     setIsCountdownActive(false);
-    setChatMessages((prev) => [
-      ...prev,
-      {
-        id: `start-${Date.now()}`,
-        user: 'TikTop Broadcast Studio',
-        avatar: '',
-        text: '🔴 YOU ARE NOW LIVE! 3-2-1 countdown completed. Welcome your audience! 🎉',
-        type: 'system',
-        timestamp: 'Just now',
-      },
-    ]);
   };
 
   // Stream Duration Timer (starts only when 3-2-1 countdown finishes)
+  // Accumulates continuously for today; automatically resets to 0 at 12:00 AM Nepal Time
   useEffect(() => {
     if (isCountdownActive) return;
+
     const timer = setInterval(() => {
-      setStreamDuration((prev) => prev + 1);
+      const todayInNepal = getNepalDateString();
+
+      // Check if 12:00 AM Midnight in Nepal has arrived
+      if (todayInNepal !== lastRecordedNepalDate.current) {
+        lastRecordedNepalDate.current = todayInNepal;
+        // 12:00 AM Nepal Time reached: Previous day's time invalid, reset to 0!
+        setStreamDuration(0);
+        if (isHostStreamer) {
+          saveTodayLiveSeconds(0, currentHostId);
+        }
+        return;
+      }
+
+      setStreamDuration((prev) => {
+        const nextSecs = prev + 1;
+        if (isHostStreamer) {
+          saveTodayLiveSeconds(nextSecs, currentHostId);
+        }
+        return nextSecs;
+      });
     }, 1000);
+
     return () => clearInterval(timer);
-  }, [isCountdownActive]);
+  }, [isCountdownActive, isHostStreamer, currentHostId]);
 
   // Live Duration Rewards Evaluation (Strict User Request Compliance):
   // 1) Face Live:
@@ -304,28 +296,6 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
         if (onUpdateDiamonds) onUpdateDiamonds(userDiamondsRef.current + pts);
         setDiamondsEarned((prev) => prev + pts);
         setLiveDurationRewardPoints((prev) => prev + pts);
-        playCelebrationChime();
-
-        setActiveRewardAlert({
-          points: pts,
-          title: '1 Hour Face Live Milestone Completed!',
-          titleNep: '🎉 १ घण्टा Face Live पूरा भयो!',
-          description:
-            'बधाई छ! १ घण्टा Face Live पूरा भए बापत १०,००० Points प्राप्त भयो। अर्को १ घण्टा (कुल २ घण्टा) पूरा गरेपछि फेरि १०,००० Points थपिनेछ!',
-          isCapReached: false,
-        });
-
-        setChatMessages((prev) => [
-          ...prev,
-          {
-            id: `reward-face-1h-${Date.now()}`,
-            user: 'TikTop Rewards System',
-            avatar: '',
-            text: '🏆 बधाई छ! Host ले १ घण्टा Face Live पूरा गरेर १०,००० Points प्राप्त गर्नुभयो! 🎉',
-            type: 'system',
-            timestamp: 'Just now',
-          },
-        ]);
       }
 
       // Milestone 2: 2 Hours Face Live (7200s) -> 10,000 points (Total 20,000, Max Cap)
@@ -336,28 +306,6 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
         if (onUpdateDiamonds) onUpdateDiamonds(userDiamondsRef.current + pts);
         setDiamondsEarned((prev) => prev + pts);
         setLiveDurationRewardPoints((prev) => prev + pts);
-        playCelebrationChime();
-
-        setActiveRewardAlert({
-          points: pts,
-          title: '2 Hours Face Live Milestone Completed (Max Cap)!',
-          titleNep: '🏆 २ घण्टा Face Live पूरा भयो!',
-          description:
-            'बधाई छ! २ घण्टा पूरा भए बापत थप १०,००० Points (कुल २०,००० Points) प्राप्त भयो। २ घण्टा सम्म मात्र रिवार्ड दिइने हुनाले अधिकतम सीमा पूरा भयो। अब थप पोइन्ट दिइने छैन तर तपाईं जति समय पनि निरन्तर लाइभ बस्न सक्नुहुन्छ!',
-          isCapReached: true,
-        });
-
-        setChatMessages((prev) => [
-          ...prev,
-          {
-            id: `reward-face-2h-${Date.now()}`,
-            user: 'TikTop Rewards System',
-            avatar: '',
-            text: '🏆 अद्भुत! Host ले २ घण्टा Face Live पूरा गरेर थप १०,००० Points (कुल २०,००० Points) प्राप्त गर्नुभयो! अधिकतम रिवार्ड सीमा पूरा भयो। 🎉',
-            type: 'system',
-            timestamp: 'Just now',
-          },
-        ]);
       }
     } else {
       // Party Live: Milestone 1: 1 Hour (3600s) -> 2,000 points
@@ -368,28 +316,6 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
         if (onUpdateDiamonds) onUpdateDiamonds(userDiamondsRef.current + pts);
         setDiamondsEarned((prev) => prev + pts);
         setLiveDurationRewardPoints((prev) => prev + pts);
-        playCelebrationChime();
-
-        setActiveRewardAlert({
-          points: pts,
-          title: '1 Hour Party Live Milestone Completed!',
-          titleNep: '🎉 १ घण्टा Party Live पूरा भयो!',
-          description:
-            'बधाई छ! Party Live १ घण्टा पूरा भए बापत २,००० Points प्राप्त भयो। अर्को १ घण्टा (कुल २ घण्टा) पूरा गरेपछि फेरि २,००० Points थपिनेछ!',
-          isCapReached: false,
-        });
-
-        setChatMessages((prev) => [
-          ...prev,
-          {
-            id: `reward-party-1h-${Date.now()}`,
-            user: 'TikTop Rewards System',
-            avatar: '',
-            text: '🏆 बधाई छ! Host ले १ घण्टा Party Live पूरा गरेर २,००० Points प्राप्त गर्नुभयो! 🎉',
-            type: 'system',
-            timestamp: 'Just now',
-          },
-        ]);
       }
 
       // Party Live: Milestone 2: 2 Hours (7200s) -> 2,000 points (Total 4,000 Points, Max Cap)
@@ -400,61 +326,11 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
         if (onUpdateDiamonds) onUpdateDiamonds(userDiamondsRef.current + pts);
         setDiamondsEarned((prev) => prev + pts);
         setLiveDurationRewardPoints((prev) => prev + pts);
-        playCelebrationChime();
-
-        setActiveRewardAlert({
-          points: pts,
-          title: '2 Hours Party Live Milestone Completed (Max Cap)!',
-          titleNep: '🏆 २ घण्टा Party Live पूरा भयो!',
-          description:
-            'बधाई छ! Party Live २ घण्टा पूरा भए बापत फेरि २,००० Points (कुल ४,००० Points) प्राप्त भयो। २ घण्टा सम्म मात्र रिवार्ड दिइने हुनाले Party Live को अधिकतम सीमा पूरा भयो। अब थप पोइन्ट दिइने छैन तर साथीहरूसँग जति समय पनि पार्टी च्याट गर्न सक्नुहुन्छ!',
-          isCapReached: true,
-        });
-
-        setChatMessages((prev) => [
-          ...prev,
-          {
-            id: `reward-party-2h-${Date.now()}`,
-            user: 'TikTop Rewards System',
-            avatar: '',
-            text: '🏆 अद्भुत! Host ले २ घण्टा Party Live पूरा गरेर फेरि २,००० Points (कुल ४,००० Points) प्राप्त गर्नुभयो! Party Live को अधिकतम रिवार्ड पूरा भयो। 🎉',
-            type: 'system',
-            timestamp: 'Just now',
-          },
-        ]);
       }
     }
   }, [streamDuration, mode, isCountdownActive, claimedMilestones, onUpdateDiamonds, onAddPoints]);
 
-  // Periodic Viewer Fluctuations & Simulated Fan Activity
-  useEffect(() => {
-    const viewerInterval = setInterval(() => {
-      setViewersCount((prev) => Math.max(12, prev + Math.floor(Math.random() * 7) - 3));
-    }, 4000);
-
-    const chatInterval = setInterval(() => {
-      const randomFan = SAMPLE_FAN_NAMES[Math.floor(Math.random() * SAMPLE_FAN_NAMES.length)];
-      const randomAvatar = SAMPLE_FAN_AVATARS[Math.floor(Math.random() * SAMPLE_FAN_AVATARS.length)];
-      const randomComment = SAMPLE_COMMENTS[Math.floor(Math.random() * SAMPLE_COMMENTS.length)];
-
-      const newMsg: ChatMessage = {
-        id: `fan-${Date.now()}`,
-        user: randomFan,
-        avatar: randomAvatar,
-        text: randomComment,
-        type: 'normal',
-        timestamp: 'Just now',
-      };
-
-      setChatMessages((prev) => [...prev.slice(-40), newMsg]);
-      setLikesCount((prev) => prev + Math.floor(Math.random() * 3) + 1);
-    }, 5500);
-
-    return () => {
-      clearInterval(viewerInterval);
-      clearInterval(chatInterval);
-    };
-  }, []);
+  // Clean live room: No unsolicited simulated comments or artificial viewer fluctuations
 
   // PK Timer when PK is active
   useEffect(() => {
@@ -1025,11 +901,13 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
 
     const newReq: SeatJoinRequest = {
       id: `req-${Date.now()}`,
+      seatNumber: seatNumber,
+      requestedSeatNumber: seatNumber,
       userName: currentUserName,
       userAvatar: userProfile?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
-      requestedSeatNumber: seatNumber,
       isFanClub: isUserFanClub,
       timestamp: Date.now(),
+      requestedAt: Date.now(),
     };
 
     setSeatJoinRequests((prev) => [newReq, ...prev]);
@@ -1228,11 +1106,13 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
               {mode === 'face' ? '👤 Face Live' : '🎉 Party Live'}
             </span>
 
-            {/* Viewers Pill */}
-            <div className="flex items-center gap-1 bg-black/45 backdrop-blur-md rounded-full px-2.5 py-1 border border-white/10 text-xs font-semibold">
-              <Users size={12} className="text-emerald-400" />
-              <span>{viewersCount.toLocaleString()}</span>
-            </div>
+            {/* Viewers Pill - Only shown when viewers > 0 */}
+            {viewersCount > 0 && (
+              <div className="flex items-center gap-1 bg-black/45 backdrop-blur-md rounded-full px-2.5 py-1 border border-white/10 text-xs font-semibold">
+                <Users size={12} className="text-emerald-400" />
+                <span>{viewersCount.toLocaleString()}</span>
+              </div>
+            )}
 
             {/* Safe End Live Button */}
             <button
@@ -1259,30 +1139,6 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
           <div className="flex items-center gap-1 bg-amber-500/20 backdrop-blur-md border border-amber-500/30 px-2 py-0.5 rounded-full text-amber-300 text-[11px] font-bold">
             <span>💎</span>
             <span>{diamondsEarned.toLocaleString()}</span>
-          </div>
-        </div>
-
-        {/* Live Reward Milestones Clean Tracker (सफा रिवार्ड ब्यानर - नियम/टेस्ट हटाइएको) */}
-        <div className="pt-0.5 flex items-center justify-between">
-          <div className="inline-flex items-center gap-1.5 bg-black/60 backdrop-blur-md border border-amber-500/30 rounded-full px-2.5 py-1 text-xs shadow-md">
-            <span className="text-amber-400 text-xs shrink-0 animate-pulse">🎁</span>
-            <span className="text-[11px] font-bold text-amber-300">
-              {mode === 'face' ? (
-                streamDuration < 3600 ? (
-                  `१ घण्टा रिवार्ड: १०,००० Pts (${Math.max(0, Math.ceil((3600 - streamDuration) / 60))} मिनेट बाँकी)`
-                ) : streamDuration < 7200 ? (
-                  `२ घण्टा रिवार्ड: फेरि +१०,००० Pts (${Math.max(0, Math.ceil((7200 - streamDuration) / 60))} मिनेट बाँकी)`
-                ) : (
-                  `🏆 २०,००० Pts प्राप्त! (२ घण्टा पूरा)`
-                )
-              ) : (
-                streamDuration < 3600 ? (
-                  `पार्टी १ घण्टा रिवार्ड: २,००० Pts (${Math.max(0, Math.ceil((3600 - streamDuration) / 60))} मिनेट बाँकी)`
-                ) : (
-                  `🏆 Party Live रिवार्ड प्राप्त!`
-                )
-              )}
-            </span>
           </div>
         </div>
       </div>
@@ -1348,13 +1204,14 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
       {/* ================= BOTTOM SECTION: CHAT & CONTROLS ================= */}
       {/* Positioned at the very bottom so face remains completely unobstructed */}
       <div id="live-room-bottom-section" className="relative z-20 px-3 pb-3 mt-auto flex flex-col gap-2">
-        {/* Live Chat Box (Clean compact overlay at the bottom so face is not covered) */}
-        <div
-          ref={chatScrollRef}
-          id="live-chat-scroll-area"
-          className="max-h-20 sm:max-h-24 overflow-y-auto space-y-1 pr-1 scrollbar-thin scrollbar-thumb-white/20 select-text"
-        >
-          {chatMessages.map((msg) => {
+        {/* Live Chat Box (Clean compact overlay: Only displayed when someone comments) */}
+        {chatMessages.length > 0 && (
+          <div
+            ref={chatScrollRef}
+            id="live-chat-scroll-area"
+            className="max-h-20 sm:max-h-24 overflow-y-auto space-y-1 pr-1 scrollbar-thin scrollbar-thumb-white/20 select-text"
+          >
+            {chatMessages.map((msg) => {
             if (msg.type === 'system') {
               return (
                 <div
@@ -1401,6 +1258,7 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
             );
           })}
         </div>
+        )}
 
         {/* Live Comment Input and Quick Bar */}
         <form onSubmit={handleSendMessage} className="flex items-center gap-1.5">
@@ -1647,40 +1505,6 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
         onClose={() => {
           setShowSummary(false);
           onExit(); // Safely returns to Home View
-        }}
-      />
-
-      {/* Live Reward Celebration Popup Dialog */}
-      {activeRewardAlert && (
-        <LiveRewardCelebrationModal
-          isOpen={!!activeRewardAlert}
-          points={activeRewardAlert.points}
-          title={activeRewardAlert.title}
-          titleNep={activeRewardAlert.titleNep}
-          description={activeRewardAlert.description}
-          isCapReached={activeRewardAlert.isCapReached}
-          mode={mode}
-          onClose={() => setActiveRewardAlert(null)}
-        />
-      )}
-
-      {/* Live Reward Rules & Fast-Forward Testing Sheet */}
-      <LiveRewardRulesModal
-        isOpen={isRewardRulesOpen}
-        onClose={() => setIsRewardRulesOpen(false)}
-        mode={mode}
-        currentDurationSeconds={streamDuration}
-        totalRewardPointsEarned={liveDurationRewardPoints}
-        claimedFaceHour1={claimedMilestones.faceHour1}
-        claimedFaceHour2={claimedMilestones.faceHour2}
-        claimedPartyHour1={claimedMilestones.partyHour1}
-        claimedPartyHour2={claimedMilestones.partyHour2}
-        onFastForward={(secs) => setStreamDuration((prev) => prev + secs)}
-        onSetDuration={(target) => {
-          if (target === 0) {
-            setClaimedMilestones({ faceHour1: false, faceHour2: false, partyHour1: false, partyHour2: false });
-          }
-          setStreamDuration(target);
         }}
       />
 

@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { Screen, LiveMode, LiveStreamer, PostVideo, PartySeatCount, UserProfile, AppUser, AuthUser, RegisteredAccount } from './types';
 import { INITIAL_POST_VIDEOS, DEFAULT_USER_PROFILE, ALL_APP_USERS, EXPLORE_STREAMERS } from './data/mockData';
-import { accountToAuthAndProfile, getRegisteredAccounts } from './utils/authDb';
+import { accountToAuthAndProfile, getRegisteredAccounts, updateRegisteredAccount } from './utils/authDb';
 import { Navbar } from './components/Navbar';
 import { BottomNav } from './components/BottomNav';
 import { HomeFeed } from './components/HomeFeed';
@@ -29,13 +29,32 @@ export default function App() {
   // Navigation State
   const [currentScreen, setCurrentScreen] = useState<Screen>('home');
 
-  // Mandatory Authentication State (User stays logged in persistently with Shambu Lamsal as default)
+  // Mandatory Authentication State (User stays logged in persistently)
   const [authUser, setAuthUser] = useState<AuthUser | null>(() => {
     try {
-      const saved = localStorage.getItem('tiktop_auth_user');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.id) return parsed;
+      const savedAuth = localStorage.getItem('tiktop_auth_user');
+      const savedProfile = localStorage.getItem('tiktop_user_profile');
+      let parsedProfile: UserProfile | null = null;
+      if (savedProfile) {
+        try {
+          parsedProfile = JSON.parse(savedProfile);
+        } catch {
+          // ignore
+        }
+      }
+
+      if (savedAuth) {
+        const parsed = JSON.parse(savedAuth);
+        if (parsed && parsed.id) {
+          // If the user modified their name or handle in profile, ensure authUser reflects it too
+          if (parsedProfile && parsedProfile.name) {
+            parsed.name = parsedProfile.name;
+            if (parsedProfile.handle) parsed.handle = parsedProfile.handle;
+            if (parsedProfile.avatar) parsed.avatar = parsedProfile.avatar;
+            if (parsedProfile.bio) parsed.bio = parsedProfile.bio;
+          }
+          return parsed;
+        }
       }
       // Auto-restore session from last active ID or registered account so user never has to repeatedly log in
       const lastActiveId = localStorage.getItem('tiktop_last_active_user_id');
@@ -44,16 +63,31 @@ export default function App() {
         const matched = accounts.find((a) => a.id === lastActiveId);
         if (matched) {
           const { authUser: restoredAuth, userProfile: restoredProfile } = accountToAuthAndProfile(matched);
+          // Preserve any custom edited profile if existing
+          if (parsedProfile && parsedProfile.name) {
+            restoredAuth.name = parsedProfile.name;
+            if (parsedProfile.handle) restoredAuth.handle = parsedProfile.handle;
+            if (parsedProfile.avatar) restoredAuth.avatar = parsedProfile.avatar;
+            if (parsedProfile.bio) restoredAuth.bio = parsedProfile.bio;
+          } else {
+            localStorage.setItem('tiktop_user_profile', JSON.stringify(restoredProfile));
+          }
           localStorage.setItem('tiktop_auth_user', JSON.stringify(restoredAuth));
-          localStorage.setItem('tiktop_user_profile', JSON.stringify(restoredProfile));
           return restoredAuth;
         }
       }
       if (accounts && accounts.length > 0) {
         const primary = accounts[0];
         const { authUser: restoredAuth, userProfile: restoredProfile } = accountToAuthAndProfile(primary);
+        if (parsedProfile && parsedProfile.name) {
+          restoredAuth.name = parsedProfile.name;
+          if (parsedProfile.handle) restoredAuth.handle = parsedProfile.handle;
+          if (parsedProfile.avatar) restoredAuth.avatar = parsedProfile.avatar;
+          if (parsedProfile.bio) restoredAuth.bio = parsedProfile.bio;
+        } else {
+          localStorage.setItem('tiktop_user_profile', JSON.stringify(restoredProfile));
+        }
         localStorage.setItem('tiktop_auth_user', JSON.stringify(restoredAuth));
-        localStorage.setItem('tiktop_user_profile', JSON.stringify(restoredProfile));
         localStorage.setItem('tiktop_last_active_user_id', primary.id);
         return restoredAuth;
       }
@@ -204,6 +238,48 @@ export default function App() {
     } catch {
       // Ignore
     }
+
+    // Also update authUser state & local storage
+    if (authUser) {
+      const updatedAuth: AuthUser = {
+        ...authUser,
+        name: updated.name,
+        handle: updated.handle,
+        avatar: updated.avatar,
+        bio: updated.bio,
+      };
+      setAuthUser(updatedAuth);
+      try {
+        localStorage.setItem('tiktop_auth_user', JSON.stringify(updatedAuth));
+      } catch {
+        // Ignore
+      }
+
+      // Also persist to registered users database so account reloads always retain the changed name
+      try {
+        updateRegisteredAccount(authUser.id, {
+          name: updated.name,
+          handle: updated.handle,
+          avatar: updated.avatar,
+          bio: updated.bio,
+        });
+      } catch {
+        // Ignore
+      }
+    } else {
+      // If authUser is null, also check if there is an account in DB matching USR-35400
+      try {
+        updateRegisteredAccount('USR-35400', {
+          name: updated.name,
+          handle: updated.handle,
+          avatar: updated.avatar,
+          bio: updated.bio,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+
     setToastMessage(`🎉 प्रोफाइल सफलतापूर्वक अद्यावधिक गरियो! (${updated.name})`);
     setTimeout(() => {
       setToastMessage(null);

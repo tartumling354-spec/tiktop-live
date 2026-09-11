@@ -79,7 +79,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
   // Google Modal State
   const [googleEmail, setGoogleEmail] = useState<string>('tartumling354@gmail.com');
-  const [googleName, setGoogleName] = useState<string>('Shambu Lamsal');
+  const [googleName, setGoogleName] = useState<string>('tar tumling');
   const [showCustomGoogleInput, setShowCustomGoogleInput] = useState<boolean>(false);
 
   // Facebook Modal State
@@ -781,34 +781,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 {authMode === 'signup' ? 'उपलब्ध Google खाताहरू:' : 'दर्ता भएका Google खाताहरू:'}
               </span>
 
-              {/* Default detected Google Account */}
-              <div
-                onClick={() => {
-                  if (authMode === 'signup') {
-                    handleGoogleSignUp('tartumling354@gmail.com', 'Tara Tumling');
-                  } else {
-                    handleGoogleLogin('tartumling354@gmail.com');
-                  }
-                }}
-                className="p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/15 cursor-pointer flex items-center justify-between transition-all group"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-rose-500 to-amber-500 flex items-center justify-center font-bold text-white shadow">
-                    T
-                  </div>
-                  <div>
-                    <span className="text-xs font-bold text-white block group-hover:text-amber-300">Tara Tumling</span>
-                    <span className="text-[11px] text-neutral-400 block font-mono">tartumling354@gmail.com</span>
-                  </div>
-                </div>
-                <span className="text-[10px] bg-rose-500/20 text-rose-300 font-bold px-2.5 py-1 rounded-full border border-rose-500/30">
-                  {authMode === 'signup' ? 'यो खाता छनोट गर्नुहोस्' : 'लगइन गर्नुहोस्'}
-                </span>
-              </div>
-
-              {/* Any additional registered Google accounts from localStorage */}
+              {/* Render all registered Google accounts dynamically so edited names like "tar tumling" reflect here */}
               {registeredAccounts
-                .filter((acc) => acc.provider === 'google' && acc.email !== 'tartumling354@gmail.com')
+                .filter((acc) => acc.provider === 'google')
                 .map((acc) => (
                   <div
                     key={acc.id}
@@ -822,14 +797,28 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     className="p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/15 cursor-pointer flex items-center justify-between transition-all group"
                   >
                     <div className="flex items-center gap-3">
-                      <img src={acc.avatar} alt={acc.name} className="w-10 h-10 rounded-full object-cover border border-white/20" />
+                      {acc.avatar ? (
+                        <img
+                          src={acc.avatar}
+                          alt={acc.name}
+                          className="w-10 h-10 rounded-full object-cover border border-white/20"
+                        />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-rose-500 to-amber-500 flex items-center justify-center font-bold text-white shadow">
+                          {acc.name.charAt(0).toUpperCase()}
+                        </div>
+                      )}
                       <div>
-                        <span className="text-xs font-bold text-white block group-hover:text-amber-300">{acc.name}</span>
-                        <span className="text-[11px] text-neutral-400 block font-mono">{acc.email}</span>
+                        <span className="text-xs font-bold text-white block group-hover:text-amber-300">
+                          {acc.name}
+                        </span>
+                        <span className="text-[11px] text-neutral-400 block font-mono">
+                          {acc.email}
+                        </span>
                       </div>
                     </div>
-                    <span className="text-[10px] bg-emerald-500/20 text-emerald-300 font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">
-                      ID: {acc.id}
+                    <span className="text-[10px] bg-rose-500/20 text-rose-300 font-bold px-2.5 py-1 rounded-full border border-rose-500/30">
+                      {authMode === 'signup' ? 'यो खाता छनोट गर्नुहोस्' : 'लगइन गर्नुहोस्'}
                     </span>
                   </div>
                 ))}

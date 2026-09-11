@@ -105,10 +105,12 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
           'tiktop_posted_videos',
           'tiktop_registered_users_db',
           'tiktop_auth_user',
+          'tiktop_last_active_user_id',
+          'tiktop_system_inbox_notices',
         ];
         const allKeys = Object.keys(localStorage);
         allKeys.forEach((key) => {
-          if (!preserveKeys.includes(key)) {
+          if (!preserveKeys.includes(key) && !key.startsWith('tiktop_daily_live_duration_')) {
             localStorage.removeItem(key);
           }
         });

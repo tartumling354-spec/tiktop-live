@@ -11,6 +11,7 @@ interface LiveCameraStreamProps {
   streamerName?: string;
   isHost?: boolean;
   isMiniBox?: boolean;
+  isPersonPresent?: boolean;
 }
 
 export const LiveCameraStream: React.FC<LiveCameraStreamProps> = ({
@@ -22,6 +23,7 @@ export const LiveCameraStream: React.FC<LiveCameraStreamProps> = ({
   streamerName = 'You',
   isHost = true,
   isMiniBox = false,
+  isPersonPresent = true,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -171,69 +173,84 @@ export const LiveCameraStream: React.FC<LiveCameraStreamProps> = ({
         ctx.restore();
       }
 
-      // Studio Streamer Avatar
-      const bobbing = Math.sin(time * 1.8) * 8;
-      const headY = height * 0.4 + bobbing;
+      // If person is present, render Studio Streamer Avatar. If not, render empty chair / absent broadcast room
+      if (isPersonPresent) {
+        const bobbing = Math.sin(time * 1.8) * 8;
+        const headY = height * 0.4 + bobbing;
 
-      // Glow behind head
-      ctx.save();
-      const glow = ctx.createRadialGradient(width / 2, headY, 10, width / 2, headY, 110);
-      glow.addColorStop(0, 'rgba(244, 63, 94, 0.5)');
-      glow.addColorStop(1, 'rgba(244, 63, 94, 0)');
-      ctx.fillStyle = glow;
-      ctx.beginPath();
-      ctx.arc(width / 2, headY, 110, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
+        // Glow behind head
+        ctx.save();
+        const glow = ctx.createRadialGradient(width / 2, headY, 10, width / 2, headY, 110);
+        glow.addColorStop(0, 'rgba(244, 63, 94, 0.5)');
+        glow.addColorStop(1, 'rgba(244, 63, 94, 0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(width / 2, headY, 110, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
 
-      // Shoulders / Torso
-      ctx.save();
-      ctx.fillStyle = '#312e81';
-      ctx.beginPath();
-      ctx.ellipse(width / 2, headY + 140, 130, 80, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
+        // Shoulders / Torso
+        ctx.save();
+        ctx.fillStyle = '#312e81';
+        ctx.beginPath();
+        ctx.ellipse(width / 2, headY + 140, 130, 80, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
 
-      // Face
-      ctx.save();
-      ctx.fillStyle = '#fed7aa';
-      ctx.beginPath();
-      ctx.arc(width / 2, headY, 55, 0, Math.PI * 2);
-      ctx.fill();
+        // Face
+        ctx.save();
+        ctx.fillStyle = '#fed7aa';
+        ctx.beginPath();
+        ctx.arc(width / 2, headY, 55, 0, Math.PI * 2);
+        ctx.fill();
 
-      // Eyes
-      ctx.fillStyle = '#1e293b';
-      const eyeBlink = Math.sin(time * 4) > 0.96 ? 1 : 7;
-      ctx.beginPath();
-      ctx.ellipse(width / 2 - 18, headY - 5, 5, eyeBlink, 0, 0, Math.PI * 2);
-      ctx.ellipse(width / 2 + 18, headY - 5, 5, eyeBlink, 0, 0, Math.PI * 2);
-      ctx.fill();
+        // Eyes
+        ctx.fillStyle = '#1e293b';
+        const eyeBlink = Math.sin(time * 4) > 0.96 ? 1 : 7;
+        ctx.beginPath();
+        ctx.ellipse(width / 2 - 18, headY - 5, 5, eyeBlink, 0, 0, Math.PI * 2);
+        ctx.ellipse(width / 2 + 18, headY - 5, 5, eyeBlink, 0, 0, Math.PI * 2);
+        ctx.fill();
 
-      // Smile
-      ctx.strokeStyle = '#e11d48';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(width / 2, headY + 10, 18, 0.2, Math.PI - 0.2, false);
-      ctx.stroke();
+        // Smile
+        ctx.strokeStyle = '#e11d48';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(width / 2, headY + 10, 18, 0.2, Math.PI - 0.2, false);
+        ctx.stroke();
 
-      // Hair
-      ctx.fillStyle = '#451a03';
-      ctx.beginPath();
-      ctx.arc(width / 2, headY - 15, 60, Math.PI, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
+        // Hair
+        ctx.fillStyle = '#451a03';
+        ctx.beginPath();
+        ctx.arc(width / 2, headY - 15, 60, Math.PI, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
 
-      // Streamer Name Pill
-      ctx.save();
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-      ctx.roundRect(width / 2 - 80, headY + 70, 160, 32, 16);
-      ctx.fill();
-      ctx.font = '600 14px system-ui, -apple-system, sans-serif';
-      ctx.fillStyle = '#ffffff';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(`${streamerName} 🔴 LIVE`, width / 2, headY + 86);
-      ctx.restore();
+        // Streamer Name Pill
+        ctx.save();
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.roundRect(width / 2 - 80, headY + 70, 160, 32, 16);
+        ctx.fill();
+        ctx.font = '600 14px system-ui, -apple-system, sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`${streamerName} 🔴 LIVE`, width / 2, headY + 86);
+        ctx.restore();
+      } else {
+        // Empty chair / streamer left scene
+        ctx.save();
+        // Empty gaming/studio chair
+        ctx.fillStyle = '#1e1b4b';
+        ctx.beginPath();
+        ctx.roundRect(width / 2 - 50, height * 0.35, 100, 120, 16);
+        ctx.fill();
+        ctx.fillStyle = '#312e81';
+        ctx.beginPath();
+        ctx.roundRect(width / 2 - 35, height * 0.37, 70, 80, 12);
+        ctx.fill();
+        ctx.restore();
+      }
 
       animId = requestAnimationFrame(renderVirtualFeed);
     };
@@ -243,7 +260,7 @@ export const LiveCameraStream: React.FC<LiveCameraStreamProps> = ({
     return () => {
       cancelAnimationFrame(animId);
     };
-  }, [useVirtualFeed, isCameraOn, isMicOn, streamerName]);
+  }, [useVirtualFeed, isCameraOn, isMicOn, streamerName, isPersonPresent]);
 
   // CSS Filter map
   const getFilterStyle = (): string => {

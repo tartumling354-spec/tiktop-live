@@ -94,7 +94,7 @@ export const LeaveLiveModal: React.FC<LeaveLiveModalProps> = ({
               </div>
               <div>
                 <span className="text-[10px] text-neutral-400 block">दर्शक (Viewers)</span>
-                <span className="text-xs font-black text-white">{viewersCount.toLocaleString()}</span>
+                <span className="text-xs font-black text-white">{viewersCount > 0 ? viewersCount.toLocaleString() : '०'}</span>
               </div>
             </div>
 
@@ -118,6 +118,15 @@ export const LeaveLiveModal: React.FC<LeaveLiveModalProps> = ({
               </div>
             </div>
           </div>
+
+          {isHost && (
+            <div className="mt-2.5 p-2.5 rounded-xl bg-indigo-500/15 border border-indigo-400/25 text-[11px] text-indigo-200 flex items-start gap-2 text-left">
+              <span className="text-sm shrink-0">⏱️</span>
+              <span className="leading-tight">
+                तपाईंको आजको लाइभ समय सुरक्षित छ। फेरि लाइभ आउँदा यहीँबाट समय गणना जारी रहनेछ (नेपाली समय राती १२:०० बजे नयाँ समय सुरु हुन्छ)।
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Action Buttons */}
