@@ -39,6 +39,9 @@ function playLiveAlertChime() {
     gain2.connect(ctx.destination);
     osc2.start(now + 0.12);
     osc2.stop(now + 0.45);
+    setTimeout(() => {
+      ctx.close().catch(() => {});
+    }, 800);
   } catch {
     // AudioContext autoplay restriction or error, gracefully ignore
   }

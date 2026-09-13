@@ -4,6 +4,7 @@ import { LiveMode, PostVideo, UserProfile, AuthUser, RegisteredAccount } from '.
 import { EditProfileModal } from './EditProfileModal';
 import { AppSettingsModal } from './AppSettingsModal';
 import { getStoredWealthTotal, calculateWealthLevel, getStoredLiveTotal, calculateLiveLevel } from '../utils/levelSystem';
+import { isUserAdminAuthorized } from '../utils/adminFinanceDb';
 
 interface ProfileViewProps {
   userCoins?: number;
@@ -12,6 +13,7 @@ interface ProfileViewProps {
   onRechargeDiamonds?: () => void;
   onOpenRechargeCoins?: () => void;
   onOpenWithdrawPoints?: () => void;
+  onOpenAdminPanel?: () => void;
   onStartLive?: (mode: LiveMode) => void;
   onOpenPostVideo?: () => void;
   userVideos: PostVideo[];
@@ -31,6 +33,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onRechargeDiamonds,
   onOpenRechargeCoins,
   onOpenWithdrawPoints,
+  onOpenAdminPanel,
   onStartLive,
   onOpenPostVideo,
   userVideos,
@@ -175,6 +178,20 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               <Settings size={13} className="text-amber-400" />
               <span>Settings</span>
             </button>
+
+            {/* Restricted Admin Panel Button - Only visible to admin */}
+            {onOpenAdminPanel && isUserAdminAuthorized(profile || authUser) && (
+              <button
+                type="button"
+                id="btn-profile-admin-console"
+                onClick={onOpenAdminPanel}
+                className="py-1.5 px-3.5 rounded-full bg-gradient-to-r from-rose-600/30 via-red-600/30 to-amber-600/30 hover:from-rose-600/50 hover:to-amber-600/50 border border-rose-500/40 text-xs font-bold text-rose-300 flex items-center gap-1.5 transition-all active:scale-95 shadow-sm cursor-pointer"
+                title="गोप्य एडमिन कन्सोल (Admin Finance & Approval Console)"
+              >
+                <ShieldCheck size={13} className="text-amber-400" />
+                <span>🔒 एडमिन प्यानल</span>
+              </button>
+            )}
 
             {onLogout && (
               <button

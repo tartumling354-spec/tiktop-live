@@ -5,7 +5,7 @@
 
 export interface SystemInboxNotice {
   id: string;
-  type: 'live_face_absent' | 'system_security' | 'reward';
+  type: 'live_face_absent' | 'system_security' | 'reward' | 'recharge';
   title: string;
   message: string;
   nepaliTitle: string;

@@ -98,11 +98,11 @@ export function saveRechargeClaim(claim: RechargeClaim): void {
 }
 
 /**
- * Admin action: revoke/reject a claim and flag it
+ * Admin action: approve, revoke or reject a claim
  */
 export function updateRechargeClaimStatus(
   claimId: string,
-  status: 'verified' | 'rejected',
+  status: 'verified' | 'pending' | 'rejected',
   rejectionReason?: string
 ): RechargeClaim | null {
   const claims = getAllRechargeClaims();
@@ -122,6 +122,153 @@ export function updateRechargeClaimStatus(
   }
 
   return claims[index];
+}
+
+/**
+ * Delete a single recharge claim by ID
+ */
+export function deleteRechargeClaim(claimId: string): boolean {
+  const claims = getAllRechargeClaims();
+  const filtered = claims.filter((c) => c.id !== claimId);
+  if (filtered.length === claims.length) return false;
+  try {
+    localStorage.setItem(RECHARGE_CLAIMS_KEY, JSON.stringify(filtered));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Clear completed/rejected recharge claims history or all claims
+ */
+export function clearRechargeClaimsHistory(mode: 'completed_rejected' | 'all' = 'completed_rejected'): number {
+  const claims = getAllRechargeClaims();
+  let remaining: RechargeClaim[] = [];
+  if (mode === 'completed_rejected') {
+    // keep only pending
+    remaining = claims.filter((c) => c.status === 'pending');
+  } else {
+    remaining = [];
+  }
+  const deletedCount = claims.length - remaining.length;
+  try {
+    localStorage.setItem(RECHARGE_CLAIMS_KEY, JSON.stringify(remaining));
+  } catch {
+    // Ignore
+  }
+  return deletedCount;
+}
+
+/**
+ * Admin WhatsApp Alert Integration
+ * Default: Owner WhatsApp (+977 989863991384)
+ */
+export const DEFAULT_ADMIN_WHATSAPP_PHONE = '+977989863991384';
+const ADMIN_WHATSAPP_KEY = 'tiktop_admin_whatsapp_number';
+
+export function getAdminWhatsAppPhone(): string {
+  try {
+    const saved = localStorage.getItem(ADMIN_WHATSAPP_KEY);
+    if (saved && saved.trim().length >= 8) {
+      // If still set to the old placeholder, update to new number
+      if (saved.includes('9863991384') && !saved.includes('989863991384')) {
+        localStorage.setItem(ADMIN_WHATSAPP_KEY, DEFAULT_ADMIN_WHATSAPP_PHONE);
+        return DEFAULT_ADMIN_WHATSAPP_PHONE;
+      }
+      return saved.trim();
+    }
+  } catch {
+    // Ignore
+  }
+  return DEFAULT_ADMIN_WHATSAPP_PHONE;
+}
+
+export function setAdminWhatsAppPhone(phone: string): void {
+  try {
+    localStorage.setItem(ADMIN_WHATSAPP_KEY, phone.trim());
+  } catch {
+    // Ignore
+  }
+}
+
+/**
+ * Builds formatted WhatsApp message & click-to-chat URL
+ * When user applies for recharge, admin immediately receives SMS on WhatsApp
+ */
+export function buildRechargeWhatsAppUrl(claim: RechargeClaim, customPhone?: string): string {
+  const rawPhone = customPhone || getAdminWhatsAppPhone();
+  // Strip non-digits for wa.me URL
+  let cleanPhone = rawPhone.replace(/[^0-9]/g, '');
+  if (!cleanPhone) cleanPhone = '977989863991384';
+
+  const lines = [
+    `🔔 *नयाँ TIKTOP सिक्का रिचार्ज अनुरोध (New Recharge Request)*`,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `👤 *प्रयोगकर्ता (User):* ${claim.userName}`,
+    `🆔 *TikTop ID:* ${claim.userId}`,
+    `🪙 *रिचार्ज सिक्का:* +${claim.coins.toLocaleString()} Coins`,
+    `💵 *जम्मा रकम:* ${claim.currencySymbol} ${claim.localAmount.toLocaleString()} ($${claim.usdAmount.toFixed(2)} USD)`,
+    `💳 *भुक्तानी माध्यम:* ${claim.methodName}`,
+    `📱 *पठाउनेको खाता/नम्बर:* ${claim.senderAccount || 'उल्लेख छैन'}`,
+    `🏢 *गन्तव्य खाता:* ${claim.targetAccount}`,
+    `🔖 *अर्डर Ref ID:* ${claim.id}`,
+    `📅 *मिति:* ${claim.paymentDate || new Date().toISOString().split('T')[0]}`,
+    `⏳ *स्थिति:* विचाराधीन (Pending Your Approval)`,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `👉 *एडमिन निर्देशन:* कृपया भुक्तानी रसिद जाँच गरी TikTop Admin Panel मा Approve गरेपछि मात्र प्रयोगकर्ताको खातामा सिक्का जम्मा हुनेछ।`,
+  ];
+
+  const fullText = lines.join('\n');
+  return `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(fullText)}`;
+}
+
+/**
+ * Builds formatted WhatsApp message & click-to-chat URL for Withdrawal
+ * When user applies for points/USD withdrawal, admin immediately receives SMS on WhatsApp (+977 989863991384)
+ */
+export function buildWithdrawWhatsAppUrl(
+  record: {
+    id: string;
+    accountName: string;
+    points: number;
+    amountFormatted: string;
+    grossUSD: number;
+    taxUSD?: number;
+    netUSD: number;
+    paymentMethod: string;
+    accountNumber: string;
+    country: string;
+    timestamp: string;
+    bankName?: string;
+  },
+  customPhone?: string
+): string {
+  const rawPhone = customPhone || getAdminWhatsAppPhone();
+  let cleanPhone = rawPhone.replace(/[^0-9]/g, '');
+  if (!cleanPhone) cleanPhone = '977989863991384';
+
+  const lines = [
+    `🔔 *नयाँ TIKTOP Points निकासी अनुरोध (New Withdrawal Request)*`,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `👤 *खातावालाको नाम:* ${record.accountName}`,
+    `🪙 *निकासी Points:* ${record.points.toLocaleString()} Pts`,
+    `💵 *खुद भुक्तानी रकम (Net Payout):* ${record.amountFormatted}`,
+    `💰 *कुल रकम (Gross):* $${record.grossUSD.toFixed(2)} USD`,
+    record.taxUSD ? `📉 *प्लेटफर्म शुल्क/कर (8%):* -$${record.taxUSD.toFixed(2)} USD` : '',
+    `💳 *भुक्तानी माध्यम:* ${record.paymentMethod}`,
+    `📱 *खाता / वालेट नम्बर:* ${record.accountNumber}`,
+    record.bankName ? `🏦 *बैंकको नाम:* ${record.bankName}` : '',
+    `🌍 *देश (Country):* ${record.country}`,
+    `🔖 *निकासी Ref ID:* ${record.id}`,
+    `📅 *मिति / समय:* ${record.timestamp}`,
+    `⏳ *स्थिति:* प्रक्रियामा (Up to 24 Hours Processing)`,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `👉 *एडमिन निर्देशन:* कृपया २४ घण्टाभित्र माथि उल्लेखित खातामा रकम ट्रान्सफर गरी निकासी सम्पन्न गर्नुहोस्।`,
+  ].filter(Boolean);
+
+  const fullText = lines.join('\n');
+  return `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(fullText)}`;
 }
 
 /**

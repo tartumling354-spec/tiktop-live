@@ -229,7 +229,11 @@ export const LiveCameraStream: React.FC<LiveCameraStreamProps> = ({
         // Streamer Name Pill
         ctx.save();
         ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-        ctx.roundRect(width / 2 - 80, headY + 70, 160, 32, 16);
+        if (typeof ctx.roundRect === 'function') {
+          ctx.roundRect(width / 2 - 80, headY + 70, 160, 32, 16);
+        } else {
+          ctx.rect(width / 2 - 80, headY + 70, 160, 32);
+        }
         ctx.fill();
         ctx.font = '600 14px system-ui, -apple-system, sans-serif';
         ctx.fillStyle = '#ffffff';
@@ -243,11 +247,19 @@ export const LiveCameraStream: React.FC<LiveCameraStreamProps> = ({
         // Empty gaming/studio chair
         ctx.fillStyle = '#1e1b4b';
         ctx.beginPath();
-        ctx.roundRect(width / 2 - 50, height * 0.35, 100, 120, 16);
+        if (typeof ctx.roundRect === 'function') {
+          ctx.roundRect(width / 2 - 50, height * 0.35, 100, 120, 16);
+        } else {
+          ctx.rect(width / 2 - 50, height * 0.35, 100, 120);
+        }
         ctx.fill();
         ctx.fillStyle = '#312e81';
         ctx.beginPath();
-        ctx.roundRect(width / 2 - 35, height * 0.37, 70, 80, 12);
+        if (typeof ctx.roundRect === 'function') {
+          ctx.roundRect(width / 2 - 35, height * 0.37, 70, 80, 12);
+        } else {
+          ctx.rect(width / 2 - 35, height * 0.37, 70, 80);
+        }
         ctx.fill();
         ctx.restore();
       }

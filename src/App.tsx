@@ -19,6 +19,7 @@ import { CreateMenuModal } from './components/CreateMenuModal';
 import { VideoPostModal } from './components/VideoPostModal';
 import { WithdrawPointsModal } from './components/WithdrawPointsModal';
 import { RechargeCoinsModal } from './components/RechargeCoinsModal';
+import { AdminFinancePanelModal } from './components/AdminFinancePanelModal';
 import { UserSearchModal } from './components/UserSearchModal';
 import { LiveNotificationAlert } from './components/LiveNotificationAlert';
 import { AuthScreen } from './components/AuthScreen';
@@ -34,6 +35,11 @@ export default function App() {
     try {
       const savedAuth = localStorage.getItem('tiktop_auth_user');
       const savedProfile = localStorage.getItem('tiktop_user_profile');
+      const customName = localStorage.getItem('tiktop_custom_user_name');
+      const customHandle = localStorage.getItem('tiktop_custom_user_handle');
+      const customAvatar = localStorage.getItem('tiktop_custom_user_avatar');
+      const customBio = localStorage.getItem('tiktop_custom_user_bio');
+
       let parsedProfile: UserProfile | null = null;
       if (savedProfile) {
         try {
@@ -46,13 +52,19 @@ export default function App() {
       if (savedAuth) {
         const parsed = JSON.parse(savedAuth);
         if (parsed && parsed.id) {
-          // If the user modified their name or handle in profile, ensure authUser reflects it too
-          if (parsedProfile && parsedProfile.name) {
+          // If the user modified their name or handle, ensure authUser reflects it persistently
+          if (customName && customName.trim().length > 0) {
+            parsed.name = customName.trim();
+          } else if (parsedProfile && parsedProfile.name) {
             parsed.name = parsedProfile.name;
-            if (parsedProfile.handle) parsed.handle = parsedProfile.handle;
-            if (parsedProfile.avatar) parsed.avatar = parsedProfile.avatar;
-            if (parsedProfile.bio) parsed.bio = parsedProfile.bio;
           }
+          if (customHandle) parsed.handle = customHandle;
+          else if (parsedProfile?.handle) parsed.handle = parsedProfile.handle;
+          if (customAvatar) parsed.avatar = customAvatar;
+          else if (parsedProfile?.avatar) parsed.avatar = parsedProfile.avatar;
+          if (customBio) parsed.bio = customBio;
+          else if (parsedProfile?.bio) parsed.bio = parsedProfile.bio;
+
           return parsed;
         }
       }
@@ -63,15 +75,25 @@ export default function App() {
         const matched = accounts.find((a) => a.id === lastActiveId);
         if (matched) {
           const { authUser: restoredAuth, userProfile: restoredProfile } = accountToAuthAndProfile(matched);
-          // Preserve any custom edited profile if existing
-          if (parsedProfile && parsedProfile.name) {
+          if (customName && customName.trim().length > 0) {
+            restoredAuth.name = customName.trim();
+            restoredProfile.name = customName.trim();
+          } else if (parsedProfile && parsedProfile.name) {
             restoredAuth.name = parsedProfile.name;
-            if (parsedProfile.handle) restoredAuth.handle = parsedProfile.handle;
-            if (parsedProfile.avatar) restoredAuth.avatar = parsedProfile.avatar;
-            if (parsedProfile.bio) restoredAuth.bio = parsedProfile.bio;
-          } else {
-            localStorage.setItem('tiktop_user_profile', JSON.stringify(restoredProfile));
           }
+          if (customHandle) {
+            restoredAuth.handle = customHandle;
+            restoredProfile.handle = customHandle;
+          }
+          if (customAvatar) {
+            restoredAuth.avatar = customAvatar;
+            restoredProfile.avatar = customAvatar;
+          }
+          if (customBio) {
+            restoredAuth.bio = customBio;
+            restoredProfile.bio = customBio;
+          }
+          localStorage.setItem('tiktop_user_profile', JSON.stringify(restoredProfile));
           localStorage.setItem('tiktop_auth_user', JSON.stringify(restoredAuth));
           return restoredAuth;
         }
@@ -79,14 +101,25 @@ export default function App() {
       if (accounts && accounts.length > 0) {
         const primary = accounts[0];
         const { authUser: restoredAuth, userProfile: restoredProfile } = accountToAuthAndProfile(primary);
-        if (parsedProfile && parsedProfile.name) {
+        if (customName && customName.trim().length > 0) {
+          restoredAuth.name = customName.trim();
+          restoredProfile.name = customName.trim();
+        } else if (parsedProfile && parsedProfile.name) {
           restoredAuth.name = parsedProfile.name;
-          if (parsedProfile.handle) restoredAuth.handle = parsedProfile.handle;
-          if (parsedProfile.avatar) restoredAuth.avatar = parsedProfile.avatar;
-          if (parsedProfile.bio) restoredAuth.bio = parsedProfile.bio;
-        } else {
-          localStorage.setItem('tiktop_user_profile', JSON.stringify(restoredProfile));
         }
+        if (customHandle) {
+          restoredAuth.handle = customHandle;
+          restoredProfile.handle = customHandle;
+        }
+        if (customAvatar) {
+          restoredAuth.avatar = customAvatar;
+          restoredProfile.avatar = customAvatar;
+        }
+        if (customBio) {
+          restoredAuth.bio = customBio;
+          restoredProfile.bio = customBio;
+        }
+        localStorage.setItem('tiktop_user_profile', JSON.stringify(restoredProfile));
         localStorage.setItem('tiktop_auth_user', JSON.stringify(restoredAuth));
         localStorage.setItem('tiktop_last_active_user_id', primary.id);
         return restoredAuth;
@@ -110,6 +143,7 @@ export default function App() {
   const [isVideoPostModalOpen, setIsVideoPostModalOpen] = useState<boolean>(false);
   const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState<boolean>(false);
   const [isRechargeCoinsModalOpen, setIsRechargeCoinsModalOpen] = useState<boolean>(false);
+  const [isAdminFinanceModalOpen, setIsAdminFinanceModalOpen] = useState<boolean>(false);
 
   // User ID Search & Live Notification States
   const [isUserSearchOpen, setIsUserSearchOpen] = useState<boolean>(false);
@@ -218,13 +252,34 @@ export default function App() {
   // User Profile (photo, name, handle, bio) with local persistence
   const [userProfile, setUserProfile] = useState<UserProfile>(() => {
     try {
+      const customName = localStorage.getItem('tiktop_custom_user_name');
+      const customHandle = localStorage.getItem('tiktop_custom_user_handle');
+      const customAvatar = localStorage.getItem('tiktop_custom_user_avatar');
+      const customBio = localStorage.getItem('tiktop_custom_user_bio');
       const saved = localStorage.getItem('tiktop_user_profile');
+      let baseProfile: UserProfile = DEFAULT_USER_PROFILE;
+
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed.name === 'string' && parsed.name.trim().length > 0) {
-          return parsed;
+          baseProfile = parsed;
         }
       }
+
+      if (customName && customName.trim().length > 0) {
+        baseProfile.name = customName.trim();
+      }
+      if (customHandle && customHandle.trim().length > 0) {
+        baseProfile.handle = customHandle.trim();
+      }
+      if (customAvatar) {
+        baseProfile.avatar = customAvatar;
+      }
+      if (customBio) {
+        baseProfile.bio = customBio;
+      }
+
+      return baseProfile;
     } catch {
       // Ignore
     }
@@ -235,55 +290,56 @@ export default function App() {
     setUserProfile(updated);
     try {
       localStorage.setItem('tiktop_user_profile', JSON.stringify(updated));
+      localStorage.setItem('tiktop_custom_user_name', updated.name);
+      if (updated.handle) localStorage.setItem('tiktop_custom_user_handle', updated.handle);
+      if (updated.avatar) localStorage.setItem('tiktop_custom_user_avatar', updated.avatar);
+      if (updated.bio) localStorage.setItem('tiktop_custom_user_bio', updated.bio);
     } catch {
       // Ignore
     }
 
-    // Also update authUser state & local storage
-    if (authUser) {
-      const updatedAuth: AuthUser = {
-        ...authUser,
+    const currentId = authUser?.id || updated.userId || localStorage.getItem('tiktop_last_active_user_id') || 'USR-35400';
+
+    const updatedAuth: AuthUser = {
+      id: currentId,
+      name: updated.name,
+      handle: updated.handle,
+      avatar: updated.avatar || (authUser ? authUser.avatar : ''),
+      bio: updated.bio || '',
+      email: authUser?.email || 'tartumling354@gmail.com',
+      provider: authUser?.provider || 'google',
+      createdAt: authUser?.createdAt || new Date().toISOString(),
+    };
+    setAuthUser(updatedAuth);
+
+    try {
+      localStorage.setItem('tiktop_auth_user', JSON.stringify(updatedAuth));
+    } catch {
+      // Ignore
+    }
+
+    // Also persist to registered users database so account reloads always retain the changed name
+    try {
+      updateRegisteredAccount(currentId, {
         name: updated.name,
         handle: updated.handle,
         avatar: updated.avatar,
         bio: updated.bio,
-      };
-      setAuthUser(updatedAuth);
-      try {
-        localStorage.setItem('tiktop_auth_user', JSON.stringify(updatedAuth));
-      } catch {
-        // Ignore
-      }
-
-      // Also persist to registered users database so account reloads always retain the changed name
-      try {
-        updateRegisteredAccount(authUser.id, {
-          name: updated.name,
-          handle: updated.handle,
-          avatar: updated.avatar,
-          bio: updated.bio,
-        });
-      } catch {
-        // Ignore
-      }
-    } else {
-      // If authUser is null, also check if there is an account in DB matching USR-35400
-      try {
-        updateRegisteredAccount('USR-35400', {
-          name: updated.name,
-          handle: updated.handle,
-          avatar: updated.avatar,
-          bio: updated.bio,
-        });
-      } catch {
-        // Ignore
-      }
+      });
+      updateRegisteredAccount('USR-35400', {
+        name: updated.name,
+        handle: updated.handle,
+        avatar: updated.avatar,
+        bio: updated.bio,
+      });
+    } catch {
+      // Ignore
     }
 
     setToastMessage(`🎉 प्रोफाइल सफलतापूर्वक अद्यावधिक गरियो! (${updated.name})`);
     setTimeout(() => {
       setToastMessage(null);
-    }, 4000);
+    }, 3000);
   };
 
   // Save coins to local storage
@@ -473,23 +529,25 @@ export default function App() {
   if (currentScreen === 'live_room') {
     return (
       <main className="w-full h-[100dvh] bg-black overflow-hidden flex items-center justify-center">
-        <LiveRoom
-          mode={activeLiveMode}
-          roomTitle={activeRoomTitle}
-          roomCategory={activeRoomCategory}
-          onExit={() => setCurrentScreen('home')}
-          userCoins={userCoins}
-          userDiamonds={userCoins}
-          userPoints={userPoints}
-          onUpdateCoins={handleUpdateCoins}
-          onUpdateDiamonds={handleUpdateCoins}
-          onAddPoints={handleAddPoints}
-          onOpenRechargeCoins={() => setIsRechargeCoinsModalOpen(true)}
-          showCountdown={isHostStreamer}
-          initialSeatCount={activePartySeatCount}
-          isHostStreamer={isHostStreamer}
-          userProfile={userProfile}
-        />
+        <ErrorBoundary fallbackTitle="लाइभ रुममा समस्या आयो" onReset={() => setCurrentScreen('home')}>
+          <LiveRoom
+            mode={activeLiveMode}
+            roomTitle={activeRoomTitle}
+            roomCategory={activeRoomCategory}
+            onExit={() => setCurrentScreen('home')}
+            userCoins={userCoins}
+            userDiamonds={userCoins}
+            userPoints={userPoints}
+            onUpdateCoins={handleUpdateCoins}
+            onUpdateDiamonds={handleUpdateCoins}
+            onAddPoints={handleAddPoints}
+            onOpenRechargeCoins={() => setIsRechargeCoinsModalOpen(true)}
+            showCountdown={isHostStreamer}
+            initialSeatCount={activePartySeatCount}
+            isHostStreamer={isHostStreamer}
+            userProfile={userProfile}
+          />
+        </ErrorBoundary>
       </main>
     );
   }
@@ -527,53 +585,56 @@ export default function App() {
 
       {/* Main Screen Views */}
       <main className="flex-1 flex flex-col overflow-hidden">
-        {currentScreen === 'home' && (
-          <HomeFeed
-            onStartLive={handleLaunchLive}
-            onOpenSetupModal={() => setIsLiveSetupOpen(true)}
-            onOpenPostVideo={() => setIsVideoPostModalOpen(true)}
-            onWatchStream={handleWatchStream}
-            userCoins={userCoins}
-            userDiamonds={userCoins}
-            videos={videos}
-          />
-        )}
+        <ErrorBoundary fallbackTitle="पृष्ठ लोड गर्न समस्या आयो" onReset={() => setCurrentScreen('home')}>
+          {currentScreen === 'home' && (
+            <HomeFeed
+              onStartLive={handleLaunchLive}
+              onOpenSetupModal={() => setIsLiveSetupOpen(true)}
+              onOpenPostVideo={() => setIsVideoPostModalOpen(true)}
+              onWatchStream={handleWatchStream}
+              userCoins={userCoins}
+              userDiamonds={userCoins}
+              videos={videos}
+            />
+          )}
 
-        {currentScreen === 'explore' && (
-          <ExploreView
-            onWatchStream={handleWatchStream}
-            onOpenSearch={() => setIsUserSearchOpen(true)}
-          />
-        )}
+          {currentScreen === 'explore' && (
+            <ExploreView
+              onWatchStream={handleWatchStream}
+              onOpenSearch={() => setIsUserSearchOpen(true)}
+            />
+          )}
 
-        {currentScreen === 'chat' && (
-          <ChatView
-            onStartLive={handleLaunchLive}
-            onWatchStream={handleWatchStream}
-            targetUser={chatTargetUser}
-            onClearTargetUser={() => setChatTargetUser(null)}
-          />
-        )}
+          {currentScreen === 'chat' && (
+            <ChatView
+              onStartLive={handleLaunchLive}
+              onWatchStream={handleWatchStream}
+              targetUser={chatTargetUser}
+              onClearTargetUser={() => setChatTargetUser(null)}
+            />
+          )}
 
-        {currentScreen === 'profile' && (
-          <ProfileView
-            userCoins={userCoins}
-            userDiamonds={userCoins}
-            userPoints={userPoints}
-            onOpenRechargeCoins={() => setIsRechargeCoinsModalOpen(true)}
-            onOpenWithdrawPoints={() => setIsWithdrawModalOpen(true)}
-            onStartLive={handleLaunchLive}
-            onOpenPostVideo={() => setIsVideoPostModalOpen(true)}
-            userVideos={userVideos}
-            profile={userProfile}
-            onUpdateProfile={handleUpdateProfile}
-            onTriggerTestLiveAlert={() => handleTriggerLiveAlert()}
-            authUser={authUser}
-            onLogout={handleLogout}
-            onSwitchAccount={handleSwitchAccount}
-            onSelectAccountDirectly={handleSelectAccountDirectly}
-          />
-        )}
+          {currentScreen === 'profile' && (
+            <ProfileView
+              userCoins={userCoins}
+              userDiamonds={userCoins}
+              userPoints={userPoints}
+              onOpenRechargeCoins={() => setIsRechargeCoinsModalOpen(true)}
+              onOpenWithdrawPoints={() => setIsWithdrawModalOpen(true)}
+              onOpenAdminPanel={() => setIsAdminFinanceModalOpen(true)}
+              onStartLive={handleLaunchLive}
+              onOpenPostVideo={() => setIsVideoPostModalOpen(true)}
+              userVideos={userVideos}
+              profile={userProfile}
+              onUpdateProfile={handleUpdateProfile}
+              onTriggerTestLiveAlert={() => handleTriggerLiveAlert()}
+              authUser={authUser}
+              onLogout={handleLogout}
+              onSwitchAccount={handleSwitchAccount}
+              onSelectAccountDirectly={handleSelectAccountDirectly}
+            />
+          )}
+        </ErrorBoundary>
       </main>
 
       {/* Fixed Bottom Navigation Bar with '+' Create button (Post Video / Go Live) */}
@@ -624,6 +685,8 @@ export default function App() {
           onClose={() => setIsWithdrawModalOpen(false)}
           userPoints={userPoints}
           currentPoints={userPoints}
+          userProfile={userProfile}
+          authUser={authUser}
           onWithdrawSuccess={(deducted, record) => {
             const remaining = Math.max(0, userPoints - deducted);
             handleUpdatePoints(remaining);
@@ -645,8 +708,20 @@ export default function App() {
           onRechargeCoins={handleRechargeCoins}
           authUser={authUser}
           userProfile={userProfile}
+          onOpenAdminPanel={() => setIsAdminFinanceModalOpen(true)}
         />
       </ErrorBoundary>
+
+      {/* Admin Finance Panel Modal (Restricted to Admin with PIN Authentication) */}
+      <AdminFinancePanelModal
+        isOpen={isAdminFinanceModalOpen}
+        onClose={() => setIsAdminFinanceModalOpen(false)}
+        currentUserProfile={userProfile}
+        currentUserCoins={userCoins}
+        currentUserPoints={userPoints}
+        onUpdateCurrentUserCoins={handleUpdateCoins}
+        onUpdateCurrentUserPoints={handleUpdatePoints}
+      />
     </div>
   );
 }

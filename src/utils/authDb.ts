@@ -37,28 +37,55 @@ const SEED_ACCOUNTS: RegisteredAccount[] = [
 ];
 
 /**
- * Get all registered accounts from localStorage
+ * Get all registered accounts from localStorage with custom profile edits preserved
  */
 export const getRegisteredAccounts = (): RegisteredAccount[] => {
+  let accounts: RegisteredAccount[] = SEED_ACCOUNTS;
   try {
     const saved = localStorage.getItem(DB_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        accounts = parsed;
       }
     }
   } catch {
     // Ignore JSON errors
   }
 
-  // Seed default accounts if database is empty
+  // Check if user has saved a customized profile name
   try {
-    localStorage.setItem(DB_KEY, JSON.stringify(SEED_ACCOUNTS));
+    const customName = localStorage.getItem('tiktop_custom_user_name');
+    const customHandle = localStorage.getItem('tiktop_custom_user_handle');
+    const customAvatar = localStorage.getItem('tiktop_custom_user_avatar');
+    const customBio = localStorage.getItem('tiktop_custom_user_bio');
+    const lastActiveId = localStorage.getItem('tiktop_last_active_user_id') || 'USR-35400';
+
+    if (customName && customName.trim().length > 0) {
+      accounts = accounts.map((acc) => {
+        if (acc.id === lastActiveId || acc.id === 'USR-35400' || acc.email === 'tartumling354@gmail.com') {
+          return {
+            ...acc,
+            name: customName.trim(),
+            ...(customHandle ? { handle: customHandle.trim() } : {}),
+            ...(customAvatar ? { avatar: customAvatar } : {}),
+            ...(customBio ? { bio: customBio } : {}),
+          };
+        }
+        return acc;
+      });
+    }
+  } catch {
+    // Ignore
+  }
+
+  // Ensure accounts are persisted
+  try {
+    localStorage.setItem(DB_KEY, JSON.stringify(accounts));
   } catch {
     // Ignore storage errors
   }
-  return SEED_ACCOUNTS;
+  return accounts;
 };
 
 /**
@@ -79,6 +106,9 @@ export const saveRegisteredAccount = (account: RegisteredAccount): RegisteredAcc
   const updated = [account, ...filtered];
   try {
     localStorage.setItem(DB_KEY, JSON.stringify(updated));
+    if (account.name) {
+      localStorage.setItem('tiktop_custom_user_name', account.name);
+    }
   } catch {
     // Ignore
   }
@@ -94,7 +124,7 @@ export const updateRegisteredAccount = (
 ): RegisteredAccount[] => {
   const all = getRegisteredAccounts();
   const updated = all.map((account) => {
-    if (account.id === accountId) {
+    if (account.id === accountId || account.id === 'USR-35400' || account.email === 'tartumling354@gmail.com') {
       return {
         ...account,
         ...updates,
@@ -105,6 +135,18 @@ export const updateRegisteredAccount = (
 
   try {
     localStorage.setItem(DB_KEY, JSON.stringify(updated));
+    if (updates.name) {
+      localStorage.setItem('tiktop_custom_user_name', updates.name);
+    }
+    if (updates.handle) {
+      localStorage.setItem('tiktop_custom_user_handle', updates.handle);
+    }
+    if (updates.avatar) {
+      localStorage.setItem('tiktop_custom_user_avatar', updates.avatar);
+    }
+    if (updates.bio) {
+      localStorage.setItem('tiktop_custom_user_bio', updates.bio);
+    }
   } catch {
     // Ignore
   }
@@ -162,12 +204,33 @@ export const findAccountByPhone = (phone: string): RegisteredAccount | undefined
 export const accountToAuthAndProfile = (
   account: RegisteredAccount
 ): { authUser: AuthUser; userProfile: UserProfile } => {
+  let effectiveName = account.name;
+  let effectiveHandle = account.handle;
+  let effectiveAvatar = account.avatar;
+  let effectiveBio = account.bio || 'TikTop Live Creator 🌟';
+
+  try {
+    const customName = localStorage.getItem('tiktop_custom_user_name');
+    const customHandle = localStorage.getItem('tiktop_custom_user_handle');
+    const customAvatar = localStorage.getItem('tiktop_custom_user_avatar');
+    const customBio = localStorage.getItem('tiktop_custom_user_bio');
+
+    if (customName && (account.id === 'USR-35400' || account.email === 'tartumling354@gmail.com' || account.provider === 'google')) {
+      effectiveName = customName.trim();
+    }
+    if (customHandle) effectiveHandle = customHandle.trim();
+    if (customAvatar) effectiveAvatar = customAvatar;
+    if (customBio) effectiveBio = customBio;
+  } catch {
+    // Ignore
+  }
+
   const authUser: AuthUser = {
     id: account.id,
-    name: account.name,
-    handle: account.handle,
-    avatar: account.avatar,
-    bio: account.bio || 'TikTop Live Creator 🌟',
+    name: effectiveName,
+    handle: effectiveHandle,
+    avatar: effectiveAvatar,
+    bio: effectiveBio,
     email: account.email,
     phone: account.phone,
     provider: account.provider,
@@ -176,10 +239,10 @@ export const accountToAuthAndProfile = (
 
   const userProfile: UserProfile = {
     userId: account.id,
-    name: account.name,
-    handle: account.handle,
-    bio: account.bio || 'TikTop Live Creator 🌟',
-    avatar: account.avatar,
+    name: effectiveName,
+    handle: effectiveHandle,
+    bio: effectiveBio,
+    avatar: effectiveAvatar,
     provider: account.provider,
     email: account.email,
     phone: account.phone,

@@ -37,6 +37,9 @@ export const LevelUpCelebrationModal: React.FC<LevelUpCelebrationModalProps> = (
           osc.start(now + i * 0.1);
           osc.stop(now + i * 0.1 + 0.6);
         });
+        setTimeout(() => {
+          ctx.close().catch(() => {});
+        }, 1200);
       }
     } catch {
       // Audio autoplay policy

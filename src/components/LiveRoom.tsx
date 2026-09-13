@@ -15,6 +15,12 @@ import {
   Volume2,
   VolumeX,
   Award,
+  AlertTriangle,
+  UserCheck,
+  UserMinus,
+  Ban,
+  UserX,
+  ShieldAlert,
 } from 'lucide-react';
 import {
   LiveMode,
@@ -55,6 +61,8 @@ import {
   recordGiftReceived,
   LevelInfo,
 } from '../utils/levelSystem';
+import { saveInboxNotice } from '../utils/inboxNotices';
+import { isUserAdminAuthorized } from '../utils/adminFinanceDb';
 
 interface LiveRoomProps {
   mode: LiveMode;
@@ -148,11 +156,24 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
   // 'host' -> strictly occupies Seat #1, supreme admin power
   // 'admin' -> moderation rights, cannot kick admin, cannot kick host
   // 'guest' -> regular audience, sends requests in approval mode, accepts invites
-  const [currentRole, setCurrentRole] = useState<'host' | 'admin' | 'guest'>(
-    isHostStreamer ? 'host' : 'guest'
-  );
+  const isSystemAdmin = isUserAdminAuthorized(userProfile);
+  const [currentRole, setCurrentRole] = useState<'host' | 'admin' | 'guest'>(() => {
+    if (isHostStreamer) return 'host';
+    if (isSystemAdmin) return 'admin';
+    return 'guest';
+  });
   const effectiveIsHost = currentRole === 'host';
-  const effectiveIsAdmin = currentRole === 'admin';
+  const effectiveIsAdmin = currentRole === 'admin' || isSystemAdmin;
+  const hasModeratorRights = effectiveIsHost || effectiveIsAdmin;
+
+  // Viewer Moderation (30-Minute Ban & Seat Removal for Host & Admin)
+  const [inspectedViewer, setInspectedViewer] = useState<{
+    userName: string;
+    userAvatar?: string;
+    badge?: string;
+  } | null>(null);
+  const [liveBanReason, setLiveBanReason] = useState<string>('अनुचित बोली वा गालीगलौज');
+  const [isViewerListOpen, setIsViewerListOpen] = useState<boolean>(false);
 
   // PK Battle State for Party Mode
   const [isPkActive, setIsPkActive] = useState<boolean>(false);
@@ -230,8 +251,47 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
         osc.start(ctx.currentTime + idx * 0.12);
         osc.stop(ctx.currentTime + idx * 0.12 + 0.4);
       });
+      setTimeout(() => {
+        ctx.close().catch(() => {});
+      }, 1000);
     } catch {
       // Audio playback allowed on user interaction
+    }
+  };
+
+  // Face Live: Person Presence Tracking, Automatic Pause & Warning System
+  // Rule: Face Live मा मान्छे स्पष्ट देखिएको बेला मात्र लाइभ समय गणना हुन्छ।
+  // मान्छे बाहिरिएमा तत्काल समय गणना पज (Pause) हुन्छ र स्क्रिन तथा इनबक्समा चेतावनी जान्छ।
+  // मान्छे आउनासाथ समय स्वतः सुरु (Auto Resume) हुन्छ।
+  const [isPersonPresent, setIsPersonPresent] = useState<boolean>(true);
+  const [showFaceAbsentWarning, setShowFaceAbsentWarning] = useState<boolean>(false);
+  const isPersonPresentRef = useRef<boolean>(true);
+  isPersonPresentRef.current = isPersonPresent;
+
+  const handleTogglePersonPresence = (present?: boolean) => {
+    const nextPresent = present !== undefined ? present : !isPersonPresent;
+    setIsPersonPresent(nextPresent);
+    isPersonPresentRef.current = nextPresent;
+
+    if (!nextPresent && mode === 'face') {
+      setShowFaceAbsentWarning(true);
+      // Host-only Inbox notification
+      if (isHostStreamer) {
+        try {
+          saveInboxNotice({
+            type: 'live_face_absent',
+            severity: 'warning',
+            title: 'Live Warning: Camera Absent',
+            nepaliTitle: '⚠️ लाइभ चेतावनी: क्यामेरा अगाडि मान्छे देखिएन',
+            message: 'You left the Face Live frame. Live duration counting is paused until you return.',
+            nepaliMessage: 'तपाईं Face Live मा क्यामेरा अगाडिबाट बाहिरिनुभएकोले लाइभ समय गणना रोकिएको छ। तुरुन्त क्यामेरा अगाडि उपस्थित हुनुहोस्!',
+          });
+        } catch {
+          // Ignore
+        }
+      }
+    } else if (nextPresent && mode === 'face') {
+      setShowFaceAbsentWarning(false);
     }
   };
 
@@ -247,10 +307,16 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
 
   // Stream Duration Timer (starts only when 3-2-1 countdown finishes)
   // Accumulates continuously for today; automatically resets to 0 at 12:00 AM Nepal Time
+  // STRICT RULE: If mode is Face Live and person is not present, timer is strictly PAUSED!
   useEffect(() => {
     if (isCountdownActive) return;
 
     const timer = setInterval(() => {
+      // In Face Live: if person not present, pause live time counting!
+      if (mode === 'face' && !isPersonPresentRef.current) {
+        return; // Paused! Time is only counted when person is clearly visible.
+      }
+
       const todayInNepal = getNepalDateString();
 
       // Check if 12:00 AM Midnight in Nepal has arrived
@@ -274,7 +340,7 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [isCountdownActive, isHostStreamer, currentHostId]);
+  }, [isCountdownActive, isHostStreamer, currentHostId, mode]);
 
   // Live Duration Rewards Evaluation (Strict User Request Compliance):
   // 1) Face Live:
@@ -367,6 +433,17 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!commentInput.trim()) return;
+
+    // Check 30m ban
+    const currentUserName = userProfile?.name || 'You';
+    const activeBan = bannedUsers.find(
+      (b) => (b.userName === currentUserName || b.userName === 'You') && b.expiresAt > Date.now()
+    );
+    if (activeBan) {
+      const remainingMins = Math.max(1, Math.ceil((activeBan.expiresAt - Date.now()) / (60 * 1000)));
+      alert(`⚠️ तपाईंलाई अनुचित व्यवहारका कारण ३० मिनेटका लागि प्रतिबन्ध लगाइएको छ। अझै ${remainingMins} मिनेट बाँकी छ।`);
+      return;
+    }
 
     const newMsg: ChatMessage = {
       id: `usr-${Date.now()}`,
@@ -674,7 +751,7 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
     ]);
   };
 
-  // Moderation: Kick user from seat
+  // Moderation: Remove user from seat only (stays in live as a viewer)
   const handleKickFromSeat = (seatNumber: number, userName: string) => {
     setPartySeats((prev) =>
       prev.map((s) =>
@@ -696,14 +773,19 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
       )
     );
 
+    if (userName?.includes('You')) {
+      setIsCameraOn(false);
+      setIsMicOn(false);
+    }
+
     const actor = effectiveIsHost ? 'होस्ट (Host)' : 'व्यवस्थापक (Admin)';
     setChatMessages((prev) => [
       ...prev,
       {
         id: `kick-${Date.now()}`,
-        user: 'TikTop Moderation 🚪',
+        user: 'TikTop Moderation 🪑',
         avatar: '',
-        text: `🚪 ${actor} ले ${userName} लाई सिट #${seatNumber} बाट हटाउनुभयो।`,
+        text: `🪑 ${actor} ले ${userName} लाई सिट #${seatNumber} बाट हटाउनुभयो (दर्शकको रूपमा लाइभ भने निरन्तर हेरिरहन मिल्नेछ)।`,
         type: 'system',
         timestamp: 'Just now',
       },
@@ -982,11 +1064,15 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
   };
 
   const handleToggleSeatMic = (seatNumber: number) => {
+    const target = partySeats.find((s) => s.seatNumber === seatNumber);
+    if (!target) return;
+    const isSelf = target.userName?.includes('You') || (userProfile?.name && target.userName?.startsWith(userProfile.name));
+    const nextMuted = !target.isMuted;
+
     setPartySeats((prev) =>
       prev.map((s) => {
         if (s.seatNumber === seatNumber) {
-          const nextMuted = !s.isMuted;
-          if (s.userName?.includes('You')) {
+          if (isSelf) {
             setIsMicOn(!nextMuted);
           }
           return { ...s, isMuted: nextMuted };
@@ -994,16 +1080,34 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
         return s;
       })
     );
+
+    if (!isSelf) {
+      const actor = effectiveIsHost ? 'होस्ट' : 'व्यवस्थापक (Admin)';
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: `mic-${Date.now()}`,
+          user: 'TikTop Party 🎙️',
+          avatar: '',
+          text: `🎙️ ${actor} ले ${target.userName} को माइक ${nextMuted ? 'म्युट (Mute)' : 'अनम्युट (Unmute)'} गर्नुभयो।`,
+          type: 'system',
+          timestamp: 'Just now',
+        },
+      ]);
+    }
   };
 
   const handleToggleSeatVideo = (seatNumber: number) => {
     setPartySeats((prev) =>
       prev.map((s) => {
         if (s.seatNumber === seatNumber) {
-          const nextVideo = !s.isVideoOn;
-          if (s.userName?.includes('You')) {
-            setIsCameraOn(nextVideo);
+          // RULE: क्यामेरा अन/अफ केवल प्रयोगकर्ता स्वयंले मात्र गर्न मिल्छ
+          const isSelf = s.userName?.includes('You') || (userProfile?.name && s.userName?.startsWith(userProfile.name));
+          if (!isSelf) {
+            return s;
           }
+          const nextVideo = !s.isVideoOn;
+          setIsCameraOn(nextVideo);
           return { ...s, isVideoOn: nextVideo };
         }
         return s;
@@ -1027,14 +1131,19 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
       id="live-room-wrapper"
       className="relative w-full h-[100dvh] max-w-md mx-auto bg-black text-white flex flex-col justify-between overflow-hidden select-none shadow-2xl"
     >
-      {/* Background Feed: Face Live = Full Screen Video, Party Live = Ambient Stage Backdrop (Camera only inside seat box) */}
+      {/* Background Feed: Face Live = Video stream kept visible in upper area when gift tray is open */}
       {mode === 'face' ? (
-        <div className="absolute inset-0 z-0">
+        <div
+          className={`absolute inset-x-0 top-0 z-0 transition-all duration-300 ${
+            isGiftTrayOpen ? 'h-[52vh]' : 'h-full'
+          }`}
+        >
           <LiveCameraStream
-            isCameraOn={isCameraOn}
+            isCameraOn={true}
             isMicOn={isMicOn}
             facingMode={facingMode}
             filter={filter}
+            isPersonPresent={isPersonPresent}
             onToggleFacingMode={() =>
               setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'))
             }
@@ -1084,7 +1193,14 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
                 </span>
               </div>
               <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-white/70">{formatTime(streamDuration)}</span>
+                <span className="text-[10px] text-white/70 flex items-center gap-1">
+                  <span>{formatTime(streamDuration)}</span>
+                  {isHostStreamer && mode === 'face' && !isPersonPresent && (
+                    <span className="text-[9px] bg-rose-500/80 text-white font-bold px-1.5 py-0.2 rounded-full border border-rose-400/40">
+                      रोकियो (Paused)
+                    </span>
+                  )}
+                </span>
                 <span className="text-white/30">•</span>
                 <span className="text-[9px] text-amber-300 font-bold flex items-center gap-0.5" title={`तपाईंको Wealth Level: Lv.${myWealthLevel.level}`}>
                   <span>👑</span>
@@ -1106,12 +1222,48 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
               {mode === 'face' ? '👤 Face Live' : '🎉 Party Live'}
             </span>
 
+            {/* Role Switcher Pill for Interactive Moderation Testing */}
+            <div className="flex items-center gap-1 bg-black/55 backdrop-blur-md rounded-full px-2 py-0.5 border border-white/20 text-[10px]">
+              <span className="text-neutral-400 text-[9.5px]">भूमिका:</span>
+              <select
+                id="live-room-role-selector"
+                value={currentRole}
+                onChange={(e) => {
+                  const newRole = e.target.value as 'host' | 'admin' | 'guest';
+                  setCurrentRole(newRole);
+                  setChatMessages((prev) => [
+                    ...prev,
+                    {
+                      id: `role-${Date.now()}`,
+                      user: 'TikTop System 🛡️',
+                      avatar: '',
+                      text: `🛡️ तपाईंको भूमिका '${newRole === 'host' ? '👑 Host (होस्ट)' : newRole === 'admin' ? '🛡️ Admin (व्यवस्थापक)' : '👁️ Guest (दर्शक)'}' मा परिवर्तन भयो।`,
+                      type: 'system',
+                      timestamp: 'Just now',
+                    },
+                  ]);
+                }}
+                className="bg-transparent text-white font-black text-[10px] focus:outline-none cursor-pointer"
+                title="भूमिका छान्नुहोस् (Role: Host / Admin / Guest)"
+              >
+                <option value="host" className="bg-neutral-900 text-amber-300">👑 Host</option>
+                <option value="admin" className="bg-neutral-900 text-indigo-300">🛡️ Admin</option>
+                <option value="guest" className="bg-neutral-900 text-white">👁️ Guest</option>
+              </select>
+            </div>
+
             {/* Viewers Pill - Only shown when viewers > 0 */}
             {viewersCount > 0 && (
-              <div className="flex items-center gap-1 bg-black/45 backdrop-blur-md rounded-full px-2.5 py-1 border border-white/10 text-xs font-semibold">
+              <button
+                type="button"
+                id="btn-viewers-list-toggle"
+                onClick={() => setIsViewerListOpen(true)}
+                className="flex items-center gap-1 bg-black/45 hover:bg-black/65 active:scale-95 backdrop-blur-md rounded-full px-2.5 py-1 border border-white/10 text-xs font-semibold cursor-pointer transition-all"
+                title="दर्शकहरूको सूची र मोडरेशन हेर्नुहोस्"
+              >
                 <Users size={12} className="text-emerald-400" />
                 <span>{viewersCount.toLocaleString()}</span>
-              </div>
+              </button>
             )}
 
             {/* Safe End Live Button */}
@@ -1141,11 +1293,57 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
             <span>{diamondsEarned.toLocaleString()}</span>
           </div>
         </div>
+
       </div>
 
+      {/* On-Screen Center Warning Notice: STRICTLY HOST ONLY (दर्शकले देख्दैनन्) */}
+      {isHostStreamer && mode === 'face' && !isPersonPresent && (
+        <div
+          id="host-face-absent-center-notice"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in"
+        >
+          <div className="w-full max-w-sm rounded-3xl bg-neutral-950 border-2 border-amber-500 shadow-2xl shadow-amber-500/25 p-6 text-center space-y-4">
+            <div className="mx-auto w-16 h-16 rounded-2xl bg-amber-500/20 border border-amber-500/50 flex items-center justify-center text-amber-400">
+              <AlertTriangle size={36} className="animate-pulse" />
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-base sm:text-lg font-black text-amber-300">
+                क्यामेरा अगाडि मान्छे देखिएन!
+              </h3>
+              <p className="text-xs sm:text-sm text-white/95 leading-relaxed font-semibold">
+                क्यामेरा अगाडि मान्छे नदेखिएकाले <span className="text-rose-400 font-black">लाइभ समय गणना रोकिएको छ</span> (Live Count Paused)।
+              </p>
+              <p className="text-[11px] text-neutral-300 leading-relaxed">
+                नियम अनुसार क्यामेरा अगाडि मान्छे उपस्थित भएपछि मात्र लाइभ समय गणना पुनः सुरु हुनेछ।
+              </p>
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-200 font-medium">
+              🔒 यो सूचना तपाईं (होस्ट) लाई मात्र देखाइएको छ। दर्शकलाई देखाइएको छैन।
+            </div>
+
+            <button
+              type="button"
+              id="btn-confirm-return-face"
+              onClick={() => handleTogglePersonPresence(true)}
+              className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs sm:text-sm shadow-xl shadow-emerald-600/30 transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <span>👤 म क्यामेरा अगाडि आएँ (समय पुन: सुरु गर्नुहोस्)</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ================= PARTY LIVE STAGE (IF PARTY MODE) ================= */}
+      {/* Kept un-obscured in upper half when gift tray is open */}
       {mode === 'party' && (
-        <div id="party-live-section" className="relative z-20 my-auto animate-fade-in">
+        <div
+          id="party-live-section"
+          className={`relative z-20 transition-all duration-300 ${
+            isGiftTrayOpen ? 'max-h-[48vh] overflow-y-auto my-1' : 'my-auto'
+          } animate-fade-in`}
+        >
           <PartyGrid
             seats={partySeats}
             seatCount={partySeatCount}
@@ -1155,13 +1353,28 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
             onToggleSeatMic={handleToggleSeatMic}
             onToggleSeatVideo={handleToggleSeatVideo}
             onOpenGiftForSeat={handleOpenGiftForSeat}
-            isHost={isHostStreamer}
+            isHost={effectiveIsHost}
+            isAdmin={effectiveIsAdmin}
             isCameraOn={isCameraOn}
             facingMode={facingMode}
             filter={filter}
             onToggleFacingMode={() =>
               setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'))
             }
+            accessMode={partyAccessMode}
+            onChangeAccessMode={handleChangeAccessMode}
+            joinRequests={seatJoinRequests}
+            onApproveRequest={handleApproveRequest}
+            onDeclineRequest={handleDeclineRequest}
+            bannedUsers={bannedUsers}
+            onKickFromSeat={handleKickFromSeat}
+            onBanUser30m={handleBanUser30m}
+            onUnbanUser={handleUnbanUser}
+            onToggleAdmin={handleToggleAdmin}
+            onSendInvite={handleSendInvite}
+            onRequestSeat={handleRequestSeat}
+            isUserFanClub={isUserFanClub}
+            currentUserName={userProfile?.name || 'You'}
           />
 
           {/* PK Battle Bar (Party Live Feature) */}
@@ -1245,14 +1458,24 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
             return (
               <div
                 key={msg.id}
-                className="inline-flex items-start gap-1 max-w-[88%] bg-black/50 border border-white/10 text-[11px] px-2 py-0.5 rounded-lg backdrop-blur-md"
+                onClick={() => {
+                  if (msg.user && !msg.user.includes('You') && !msg.user.includes('TikTop')) {
+                    setInspectedViewer({
+                      userName: msg.user,
+                      userAvatar: msg.avatar,
+                      badge: msg.badge,
+                    });
+                  }
+                }}
+                className="inline-flex items-start gap-1 max-w-[88%] bg-black/50 hover:bg-black/75 cursor-pointer border border-white/10 text-[11px] px-2 py-0.5 rounded-lg backdrop-blur-md transition-all active:scale-98"
+                title={hasModeratorRights ? "प्रयोगकर्ता मोडरेशन / ३० मिनेट निष्कासन (क्लिक गर्नुहोस्)" : "उपहार पठाउनुहोस्"}
               >
                 {msg.badge && (
                   <span className="bg-amber-500 text-black font-extrabold text-[8px] px-1 rounded-xs mt-0.5">
                     {msg.badge}
                   </span>
                 )}
-                <span className="font-bold text-rose-300 shrink-0">{msg.user}:</span>
+                <span className="font-bold text-rose-300 shrink-0 hover:underline">{msg.user}:</span>
                 <span className="text-white/90 break-words">{msg.text}</span>
               </div>
             );
@@ -1306,26 +1529,36 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
               {isMicOn ? <Mic size={17} /> : <MicOff size={17} />}
             </button>
 
-            {/* Video Toggle */}
-            <button
-              type="button"
-              id="btn-toggle-camera"
-              onClick={() => {
-                const nextCam = !isCameraOn;
-                setIsCameraOn(nextCam);
-                setPartySeats((prev) =>
-                  prev.map((s) => (s.userName?.includes('You') ? { ...s, isVideoOn: nextCam } : s))
-                );
-              }}
-              className={`p-2.5 rounded-full border backdrop-blur-md transition-all active:scale-90 ${
-                isCameraOn
-                  ? 'bg-white/15 border-white/20 text-white'
-                  : 'bg-rose-600 border-rose-500 text-white shadow-lg shadow-rose-600/30'
-              }`}
-              title={isCameraOn ? 'Turn Camera Off' : 'Turn Camera On'}
-            >
-              {isCameraOn ? <Video size={17} /> : <VideoOff size={17} />}
-            </button>
+            {/* Video Control: Allowed to toggle in Party Live; in Face Live camera cannot be turned off! */}
+            {mode === 'party' ? (
+              <button
+                type="button"
+                id="btn-toggle-camera"
+                onClick={() => {
+                  const nextCam = !isCameraOn;
+                  setIsCameraOn(nextCam);
+                  setPartySeats((prev) =>
+                    prev.map((s) => (s.userName?.includes('You') ? { ...s, isVideoOn: nextCam } : s))
+                  );
+                }}
+                className={`p-2.5 rounded-full border backdrop-blur-md transition-all active:scale-90 ${
+                  isCameraOn
+                    ? 'bg-white/15 border-white/20 text-white'
+                    : 'bg-rose-600 border-rose-500 text-white shadow-lg shadow-rose-600/30'
+                }`}
+                title={isCameraOn ? 'Turn Camera Off' : 'Turn Camera On'}
+              >
+                {isCameraOn ? <Video size={17} /> : <VideoOff size={17} />}
+              </button>
+            ) : (
+              <div
+                id="face-live-camera-locked"
+                className="p-2.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 backdrop-blur-md flex items-center justify-center cursor-default"
+                title="Face Live मा क्यामेरा अनिवार्य अन रहन्छ (Camera off forbidden in Face Live)"
+              >
+                <Video size={17} className="text-emerald-300" />
+              </div>
+            )}
 
             {/* Beauty & Visual Filters */}
             <button
@@ -1341,6 +1574,23 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
             >
               <Sparkles size={17} />
             </button>
+
+            {/* Host Face Presence Simulation Test (Host Only) */}
+            {mode === 'face' && isHostStreamer && (
+              <button
+                type="button"
+                id="btn-simulate-presence-toggle"
+                onClick={() => handleTogglePersonPresence()}
+                className={`p-2.5 rounded-full border backdrop-blur-md transition-all active:scale-90 ${
+                  isPersonPresent
+                    ? 'bg-white/15 border-white/20 text-white hover:bg-white/25'
+                    : 'bg-amber-500 border-amber-400 text-white animate-pulse'
+                }`}
+                title={isPersonPresent ? 'मान्छे बाहिरिएको परीक्षण (Step Away)' : 'क्यामेरा अगाडि फर्किनुहोस् (Return)'}
+              >
+                {isPersonPresent ? <UserMinus size={17} /> : <UserCheck size={17} />}
+              </button>
+            )}
 
             {/* Party Mode Special Feature: PK Battle or Party Music */}
             {mode === 'party' && (
@@ -1507,6 +1757,276 @@ export const LiveRoom: React.FC<LiveRoomProps> = ({
           onExit(); // Safely returns to Home View
         }}
       />
+
+      {/* Viewer Profile & Moderation Modal (30-Minute Ban & Seat Removal for Host & Admin) */}
+      {inspectedViewer && (() => {
+        const seated = partySeats.find(
+          (s) => s.isOccupied && s.userName === inspectedViewer.userName
+        );
+
+        return (
+          <div
+            id="modal-viewer-moderation"
+            className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+            onClick={() => setInspectedViewer(null)}
+          >
+            <div
+              className="w-full max-w-xs bg-neutral-900 border border-white/20 rounded-3xl p-5 shadow-2xl space-y-4 animate-scale-up"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-full overflow-hidden border border-rose-500/50">
+                    <img
+                      src={inspectedViewer.userAvatar || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80"}
+                      alt={inspectedViewer.userName}
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
+                      <span>{inspectedViewer.userName}</span>
+                      {inspectedViewer.badge && (
+                        <span className="text-[9px] bg-amber-500 text-black font-extrabold px-1 rounded">
+                          {inspectedViewer.badge}
+                        </span>
+                      )}
+                    </h3>
+                    <p className="text-[10px] text-neutral-400">
+                      {seated ? `🪑 पार्टी सिट #${seated.seatNumber} मा बसेको` : '👁️ लाइभ दर्शक (Viewer)'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setInspectedViewer(null)}
+                  className="text-neutral-400 hover:text-white p-1"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Host & Admin Moderation Section */}
+              {hasModeratorRights && (
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300">
+                    <ShieldAlert size={15} />
+                    <span>मोडरेशन नियन्त्रण ({effectiveIsHost ? 'Host' : 'Admin'})</span>
+                  </div>
+
+                  {/* Option 1: Remove from Seat ONLY (stays in live as viewer) */}
+                  {seated && (
+                    <div className="p-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-1">
+                      <button
+                        type="button"
+                        id="btn-viewer-kick-seat-only"
+                        onClick={() => {
+                          handleKickFromSeat(seated.seatNumber, inspectedViewer.userName);
+                          setInspectedViewer(null);
+                        }}
+                        className="w-full py-2 px-3 rounded-xl bg-amber-500/25 hover:bg-amber-500/40 border border-amber-500/50 text-amber-200 font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-95 shadow-sm"
+                      >
+                        <UserX size={15} className="text-amber-400" />
+                        <span>सिटबाट मात्र हटाउनुहोस् (दर्शक बनाउनुहोस्)</span>
+                      </button>
+                      <p className="text-[9.5px] text-amber-300/80 text-center px-1">
+                        💡 सिटबाट मात्र हट्नुहुनेछ, लाइभ प्रसारण भने दर्शक बनेर निरन्तर हेर्न पाउनेछन्।
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Option 2: 30-Minute Ban from Live */}
+                  <div className="p-2.5 rounded-2xl bg-rose-950/30 border border-rose-500/30 space-y-2">
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-rose-300 font-bold block">
+                        निष्कासनको कारण (Reason):
+                      </label>
+                      <select
+                        value={liveBanReason}
+                        onChange={(e) => setLiveBanReason(e.target.value)}
+                        className="w-full bg-black/60 border border-rose-500/40 rounded-lg px-2 py-1 text-xs text-white focus:outline-none"
+                      >
+                        <option value="अनुचित बोली वा गालीगलौज">अनुचित बोली वा गालीगलौज</option>
+                        <option value="स्पाम वा अनावश्यक विज्ञापन">स्पाम वा अनावश्यक विज्ञापन</option>
+                        <option value="समुदाय दिशानिर्देश उल्लंघन">समुदाय दिशानिर्देश उल्लंघन</option>
+                        <option value="होस्ट वा अन्य प्रयोगकर्ता अपमान">होस्ट वा अन्य प्रयोगकर्ता अपमान</option>
+                      </select>
+                    </div>
+
+                    <button
+                      type="button"
+                      id="btn-viewer-30m-ban"
+                      onClick={() => {
+                        handleBanUser30m(
+                          inspectedViewer.userName,
+                          inspectedViewer.userAvatar,
+                          liveBanReason,
+                          seated?.seatNumber
+                        );
+                        setInspectedViewer(null);
+                      }}
+                      className="w-full py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-md shadow-rose-600/30 transition-all active:scale-95"
+                    >
+                      <Ban size={14} />
+                      <span>३० मिनेटका लागि निष्कासन / ब्लक (30m Ban)</span>
+                    </button>
+                    <p className="text-[9.5px] text-rose-300/80 text-center px-1">
+                      🚫 प्रयोगकर्तालाई ३० मिनेटका लागि लाइभबाट निष्कासन तथा कमेन्ट/सिट प्रतिबन्ध लगाइन्छ।
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* General Actions */}
+              <div className="pt-2 border-t border-white/10 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInspectedViewer(null);
+                    setIsGiftTrayOpen(true);
+                  }}
+                  className="flex-1 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-rose-500 text-neutral-950 font-bold text-xs flex items-center justify-center gap-1.5 shadow-md active:scale-95 transition-all"
+                >
+                  <GiftIcon size={14} />
+                  <span>उपहार पठाउनुहोस्</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInspectedViewer(null)}
+                  className="py-2 px-3 rounded-xl bg-white/10 text-white font-semibold text-xs hover:bg-white/15 transition-all"
+                >
+                  बन्द गर्नुहोस्
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Active Viewers & Moderation List Modal */}
+      {isViewerListOpen && (
+        <div
+          id="modal-active-viewers-list"
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+          onClick={() => setIsViewerListOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm bg-neutral-900 border border-white/20 rounded-3xl p-5 shadow-2xl space-y-3 animate-scale-up max-h-[85vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2">
+                <Users size={18} className="text-emerald-400" />
+                <h3 className="text-sm font-bold text-white">
+                  दर्शक तथा मोडरेशन सूची ({viewersCount})
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsViewerListOpen(false)}
+                className="text-neutral-400 hover:text-white p-1"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <p className="text-[11px] text-neutral-400">
+              {hasModeratorRights
+                ? 'होस्ट र एडमिनले दर्शकलाई ३० मिनेटका लागि लाइभबाट निष्कासन वा सिटबाट मात्र हटाउन सक्नुहुन्छ:'
+                : 'लाइभ हेरिरहेका सक्रिय दर्शकहरू:'}
+            </p>
+
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1 scrollbar-thin">
+              {/* Combine seated users and mock audience */}
+              {([
+                ...partySeats
+                  .filter((s) => s.isOccupied && !s.userName?.includes('You (Host)'))
+                  .map((s) => ({
+                    name: s.userName || 'Guest',
+                    avatar: s.userAvatar,
+                    isSeated: true,
+                    seatNumber: s.seatNumber as number | undefined,
+                    badge: s.isAdmin ? 'ADMIN' : s.isFanClub ? 'FAN' : undefined,
+                  })),
+                {
+                  name: 'Aayush Nepal',
+                  avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+                  isSeated: false,
+                  seatNumber: undefined,
+                  badge: 'FAN',
+                },
+                {
+                  name: 'Sunita Sharma',
+                  avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
+                  isSeated: false,
+                  seatNumber: undefined,
+                },
+                {
+                  name: 'Bikram Thapa',
+                  avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
+                  isSeated: false,
+                  seatNumber: undefined,
+                },
+              ] as Array<{ name: string; avatar?: string; isSeated: boolean; seatNumber?: number; badge?: string }>).map((viewer, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-center justify-between p-2.5 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <img
+                      src={viewer.avatar || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80"}
+                      alt={viewer.name}
+                      referrerPolicy="no-referrer"
+                      className="w-9 h-9 rounded-full object-cover border border-white/20"
+                    />
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-white">{viewer.name}</span>
+                        {viewer.badge && (
+                          <span className="text-[8px] bg-amber-500 text-black font-extrabold px-1 rounded">
+                            {viewer.badge}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-neutral-400">
+                        {viewer.isSeated ? `🪑 सिट #${viewer.seatNumber}` : 'दर्शक (Viewer)'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {hasModeratorRights && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsViewerListOpen(false);
+                        setInspectedViewer({
+                          userName: viewer.name,
+                          userAvatar: viewer.avatar,
+                          badge: viewer.badge,
+                        });
+                      }}
+                      className="py-1 px-2.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/40 border border-rose-500/40 text-rose-300 font-bold text-[10px] flex items-center gap-1 transition-all active:scale-95"
+                    >
+                      <ShieldAlert size={12} />
+                      <span>मोडरेशन</span>
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsViewerListOpen(false)}
+              className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold text-xs transition-all"
+            >
+              बन्द गर्नुहोस्
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 3-2-1 Animated Countdown Overlay Popup Before Stream Starts */}
       {isCountdownActive && (

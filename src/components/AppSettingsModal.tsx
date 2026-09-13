@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { AuthUser, UserProfile, RegisteredAccount } from '../types';
 import { getRegisteredAccounts, accountToAuthAndProfile } from '../utils/authDb';
+import { isUserAdminAuthorized } from '../utils/adminFinanceDb';
 
 interface AppSettingsModalProps {
   isOpen: boolean;
@@ -39,6 +40,7 @@ interface AppSettingsModalProps {
   userPoints: number;
   onOpenRecharge: () => void;
   onOpenWithdraw: () => void;
+  onOpenAdminPanel?: () => void;
   onTriggerTestLiveAlert?: () => void;
   profile?: UserProfile;
   authUser?: AuthUser | null;
@@ -55,6 +57,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
   userPoints,
   onOpenRecharge,
   onOpenWithdraw,
+  onOpenAdminPanel,
   onTriggerTestLiveAlert,
   profile,
   authUser,
@@ -437,6 +440,42 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                   </div>
                 </div>
               </div>
+
+              {/* Restricted Admin Finance & Approval Console Card - Strictly for Authorized Admin */}
+              {onOpenAdminPanel && isUserAdminAuthorized(profile || authUser) && (
+                <div className="bg-gradient-to-br from-neutral-900 via-rose-950/30 to-amber-950/20 border border-rose-500/40 rounded-2xl p-4 space-y-3 shadow-lg">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-rose-600 via-red-500 to-amber-500 text-white flex items-center justify-center shadow-md shadow-rose-600/30">
+                        <ShieldCheck size={18} />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-white block flex items-center gap-1.5">
+                          <span>🔒 एडमिन फाइनान्स कन्सोल</span>
+                          <span className="text-[9px] bg-rose-500/20 text-rose-300 font-mono px-1.5 py-0.2 rounded border border-rose-500/30">
+                            गोप्य
+                          </span>
+                        </span>
+                        <span className="text-[10px] text-neutral-400">
+                          रिचार्ज/निकासी स्वीकृति र प्रयोगकर्ता मौज्दात
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      id="btn-settings-open-admin-console"
+                      onClick={() => {
+                        onClose();
+                        onOpenAdminPanel();
+                      }}
+                      className="py-1.5 px-3.5 rounded-xl bg-rose-600/30 hover:bg-rose-600/50 border border-rose-500/40 text-rose-200 font-bold text-xs transition-all cursor-pointer shadow-sm active:scale-95"
+                    >
+                      <span>खोल्नुहोस् →</span>
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Quick Actions */}
               <div className="grid grid-cols-2 gap-2 pt-1">

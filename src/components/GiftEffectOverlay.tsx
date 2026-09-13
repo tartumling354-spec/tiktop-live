@@ -90,6 +90,9 @@ export const GiftEffectOverlay: React.FC<GiftEffectOverlayProps> = ({ activeGift
             osc.stop(t + 0.6);
           });
         }
+        setTimeout(() => {
+          ctx.close().catch(() => {});
+        }, 1200);
       }
     } catch {
       // Audio might be muted or unavailable

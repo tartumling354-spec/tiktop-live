@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Radio, User, Users, CheckCheck, Plus, MessageSquare, Send, Smile, Mic, X, ArrowLeft, Copy, Check } from 'lucide-react';
+import { Search, Radio, User, Users, CheckCheck, Plus, MessageSquare, Send, Smile, Mic, X, ArrowLeft, Copy, Check, AlertTriangle, Bell, ShieldAlert } from 'lucide-react';
 import { LiveMode, AppUser, LiveStreamer } from '../types';
 import { ALL_APP_USERS, EXPLORE_STREAMERS } from '../data/mockData';
+import { getStoredInboxNotices, markAllNoticesAsRead, SystemInboxNotice } from '../utils/inboxNotices';
 
 interface ChatViewProps {
   onStartLive: (mode: LiveMode) => void;
@@ -121,6 +122,34 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [newUserSearchQuery, setNewUserSearchQuery] = useState('');
   const [copiedId, setCopiedId] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  // System Warning & Compliance Notices State
+  const [systemNotices, setSystemNotices] = useState<SystemInboxNotice[]>(() => getStoredInboxNotices());
+  const [showNoticesModal, setShowNoticesModal] = useState<boolean>(false);
+
+  useEffect(() => {
+    let lastFirstId = systemNotices[0]?.id || '';
+    let lastLength = systemNotices.length;
+
+    const checkNotices = () => {
+      const fresh = getStoredInboxNotices();
+      const freshFirstId = fresh[0]?.id || '';
+      if (fresh.length !== lastLength || freshFirstId !== lastFirstId) {
+        lastLength = fresh.length;
+        lastFirstId = freshFirstId;
+        setSystemNotices(fresh);
+      }
+    };
+
+    const interval = setInterval(checkNotices, 3000);
+    window.addEventListener('storage', checkNotices);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('storage', checkNotices);
+    };
+  }, []);
+
+  const unreadNoticesCount = systemNotices.filter((n) => !n.read).length;
 
   // Auto-scroll to bottom of messages
   const scrollToBottom = () => {
@@ -517,6 +546,51 @@ export const ChatView: React.FC<ChatViewProps> = ({
             </div>
           </div>
 
+          {/* Official System Notices & Warning Alerts Card */}
+          <div
+            id="inbox-system-notices-banner"
+            onClick={() => {
+              setShowNoticesModal(true);
+              markAllNoticesAsRead();
+              setSystemNotices((prev) => prev.map((n) => ({ ...n, read: true })));
+            }}
+            className={`p-3 rounded-2xl border transition-all cursor-pointer mb-3 flex items-center justify-between ${
+              unreadNoticesCount > 0
+                ? 'bg-rose-950/40 border-rose-500/50 hover:bg-rose-950/60 shadow-lg shadow-rose-900/20'
+                : 'bg-neutral-900/80 border-white/10 hover:bg-neutral-900'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <div
+                className={`w-9 h-9 rounded-xl flex items-center justify-center ${
+                  unreadNoticesCount > 0
+                    ? 'bg-rose-600 text-white animate-pulse'
+                    : 'bg-white/10 text-neutral-300'
+                }`}
+              >
+                {unreadNoticesCount > 0 ? <AlertTriangle size={18} /> : <Bell size={18} />}
+              </div>
+              <div className="flex flex-col">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-white">
+                    आधिकारिक प्रणाली सूचना (Official Warnings)
+                  </span>
+                  {unreadNoticesCount > 0 && (
+                    <span className="bg-rose-500 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full">
+                      {unreadNoticesCount} नयाँ
+                    </span>
+                  )}
+                </div>
+                <span className="text-[11px] text-neutral-400 truncate max-w-[220px]">
+                  {systemNotices.length > 0
+                    ? systemNotices[0].nepaliTitle || systemNotices[0].title
+                    : 'कुनै पनि चेतावनी वा सूचना छैन'}
+                </span>
+              </div>
+            </div>
+            <span className="text-[11px] font-bold text-rose-400 hover:underline">हेर्नुहोस् →</span>
+          </div>
+
           {/* Search bar & + New SMS Button */}
           <div className="flex items-center gap-2 mb-3">
             <div className="relative flex-1">
@@ -708,6 +782,85 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   </button>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* System Warning & Compliance Notices Modal */}
+      {showNoticesModal && (
+        <div
+          id="modal-system-notices"
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+        >
+          <div className="bg-neutral-900 border border-white/15 rounded-3xl w-full max-w-sm overflow-hidden flex flex-col max-h-[85vh] shadow-2xl animate-scale-up">
+            {/* Modal Header */}
+            <div className="p-4 border-b border-white/10 flex items-center justify-between bg-neutral-950">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400">
+                  <ShieldAlert size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white">आधिकारिक प्रणाली सूचना</h3>
+                  <p className="text-[10px] text-neutral-400">System Warning & Notices</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowNoticesModal(false)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-neutral-300 flex items-center justify-center"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Notices List */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {systemNotices.length === 0 ? (
+                <div className="text-center py-10 text-neutral-400">
+                  <Bell size={32} className="mx-auto mb-2 opacity-30" />
+                  <p className="text-xs">हाल कुनै पनि सूचना वा चेतावनी छैन।</p>
+                </div>
+              ) : (
+                systemNotices.map((notice) => (
+                  <div
+                    key={notice.id}
+                    className={`p-3.5 rounded-2xl border text-left space-y-1.5 ${
+                      notice.severity === 'warning'
+                        ? 'bg-rose-950/30 border-rose-500/40'
+                        : 'bg-white/5 border-white/10'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-black text-rose-300 flex items-center gap-1.5">
+                        <AlertTriangle size={14} className="text-rose-400 shrink-0" />
+                        <span>{notice.nepaliTitle || notice.title}</span>
+                      </span>
+                      <span className="text-[9px] text-neutral-400 shrink-0 font-mono">
+                        {notice.timeString || new Date(notice.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                    <p className="text-xs text-white/90 leading-relaxed">
+                      {notice.nepaliMessage || notice.message}
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-3 border-t border-white/10 bg-neutral-950 flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  markAllNoticesAsRead();
+                  setSystemNotices((prev) => prev.map((n) => ({ ...n, read: true })));
+                  setShowNoticesModal(false);
+                }}
+                className="w-full py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs transition-all active:scale-95 cursor-pointer"
+              >
+                बुझेँ (Acknowledge & Close)
+              </button>
             </div>
           </div>
         </div>

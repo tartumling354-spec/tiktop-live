@@ -43,7 +43,12 @@ import {
   saveRechargeClaim,
   updateRechargeClaimStatus,
   OFFICIAL_DEVELOPER_MERCHANTS,
+  buildRechargeWhatsAppUrl,
+  getAdminWhatsAppPhone,
+  setAdminWhatsAppPhone,
 } from '../utils/rechargeVerificationDb';
+import { saveInboxNotice } from '../utils/inboxNotices';
+import { isUserAdminAuthorized } from '../utils/adminFinanceDb';
 
 interface RechargeCoinsModalProps {
   isOpen: boolean;
@@ -53,6 +58,7 @@ interface RechargeCoinsModalProps {
   onRechargeCoins: (amount: number) => void;
   authUser?: AuthUser | null;
   userProfile?: UserProfile;
+  onOpenAdminPanel?: () => void;
 }
 
 export const COINS_PER_USD = 92000;
@@ -441,6 +447,7 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
   onRechargeCoins,
   authUser,
   userProfile,
+  onOpenAdminPanel,
 }) => {
   const coinsBalance =
     typeof currentCoins === 'number'
@@ -493,6 +500,14 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
   const [successMessage, setSuccessMessage] = useState<string>('');
   const [claimsList, setClaimsList] = useState<RechargeClaim[]>([]);
   const [selectedPreviewImage, setSelectedPreviewImage] = useState<string | null>(null);
+
+  // Submitted Claim for 24-hour processing notice & instant WhatsApp SMS
+  const [submittedClaim, setSubmittedClaim] = useState<RechargeClaim | null>(null);
+
+  // Admin WhatsApp Settings
+  const [adminPhone, setAdminPhone] = useState<string>(() => getAdminWhatsAppPhone());
+  const [isEditingAdminPhone, setIsEditingAdminPhone] = useState<boolean>(false);
+  const [tempAdminPhone, setTempAdminPhone] = useState<string>(() => getAdminWhatsAppPhone());
 
   // QR Modal and Inline QR states
   const [isQrModalOpen, setIsQrModalOpen] = useState<boolean>(false);
@@ -798,7 +813,7 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
             const claimId = `RCH-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
             recordUsedScreenshotHash(screenshotHash, claimId, totalCoins);
 
-            // Save to Admin Panel Log immediately so admin knows who took how many coins
+            // New claim with PENDING status (Requires Admin Approval)
             const newClaim: RechargeClaim = {
               id: claimId,
               userId: activeUserId,
@@ -816,31 +831,37 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
               receiptImage,
               screenshotHash,
               paymentDate: autoPaymentDate,
-              status: 'verified',
+              status: 'pending', // PENDING ADMIN APPROVAL
               submittedAt: new Date().toISOString(),
-              verifiedAt: new Date().toISOString(),
             };
 
             saveRechargeClaim(newClaim);
             setClaimsList(getAllRechargeClaims());
 
-            // Immediately Credit Coins to User
-            onRechargeCoins(totalCoins);
+            // 1. Immediately trigger WhatsApp SMS to Admin
+            const waUrl = buildRechargeWhatsAppUrl(newClaim, adminPhone);
+            try {
+              window.open(waUrl, '_blank');
+            } catch {
+              // Popup blocked; user can also click explicit button on receipt view
+            }
 
-            setSuccessMessage(
-              `🎉 भुक्तानी प्रमाणीकरण सफल भयो!\n+${totalCoins.toLocaleString()} Coins तपाईंको खातामा तुरुन्तै जम्मा भयो।\nएडमिन प्यानलमा जानकारी अद्यावधिक भइसकेको छ।`
-            );
+            // 2. Save notice to System Inbox
+            saveInboxNotice({
+              type: 'recharge',
+              title: 'Recharge Request Submitted',
+              nepaliTitle: 'रिचार्ज अनुरोध पेश भयो (Pending)',
+              message: `Your recharge request (${newClaim.id}) of ${newClaim.currencySymbol} ${newClaim.localAmount} for +${newClaim.coins.toLocaleString()} Coins is pending admin approval (Up to 24 hours).`,
+              nepaliMessage: `तपाईंको रू ${newClaim.localAmount} (+${newClaim.coins.toLocaleString()} Coins) को रिचार्ज अनुरोध पेश भएको छ। प्रमाणीकरण र एडमिन स्वीकृति हुन २४ घण्टा सम्म लाग्न सक्छ।`,
+              severity: 'info',
+            });
 
-            // Reset form
+            // 3. Reset form inputs and show submitted receipt view (24-hour notice & WhatsApp button)
             setSenderAccount('');
             setReceiptImage(null);
             setScreenshotHash('');
             setIsDuplicateScreenshot(false);
-
-            // Auto-close success modal after 3.5s
-            setTimeout(() => {
-              onClose();
-            }, 3500);
+            setSubmittedClaim(newClaim);
           }, 700);
         }, 800);
       }, 800);
@@ -897,7 +918,7 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
         setVerificationStep(`✨ ३. 3D Secure कार्ड भुक्तानी सफलतापूर्वक स्वीकृत भयो!`);
 
         setTimeout(() => {
-          setVerificationStep(`💰 ४. +${totalCoins.toLocaleString()} Coins गणना गरी खातामा लोड गरिँदैछ...`);
+          setVerificationStep(`📥 ४. कार्ड भुक्तानी विवरण दर्ता गरी एडमिन स्वीकृतिका लागि पेश गरिँदैछ...`);
 
           setTimeout(() => {
             setIsVerifying(false);
@@ -924,20 +945,30 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
               receiptImage: digitalReceiptSvg,
               screenshotHash: cardTxHash,
               paymentDate: autoPaymentDate,
-              status: 'verified',
+              status: 'pending', // PENDING ADMIN APPROVAL
               submittedAt: new Date().toISOString(),
-              verifiedAt: new Date().toISOString(),
             };
 
             saveRechargeClaim(newClaim);
             setClaimsList(getAllRechargeClaims());
 
-            // Immediately Credit Coins
-            onRechargeCoins(totalCoins);
+            // 1. Immediately send WhatsApp alert to Admin
+            const waUrl = buildRechargeWhatsAppUrl(newClaim, adminPhone);
+            try {
+              window.open(waUrl, '_blank');
+            } catch {
+              // Ignore popup block
+            }
 
-            setSuccessMessage(
-              `🎉 कार्ड भुक्तानी सफल भयो!\n+${totalCoins.toLocaleString()} Coins तपाईंको खातामा तुरुन्तै जम्मा भयो।\nनबिल बैंक सेटलमेन्ट सफल (Ref: ${claimId})`
-            );
+            // 2. Save notice in System Inbox
+            saveInboxNotice({
+              type: 'recharge',
+              title: 'Card Payment Submitted',
+              nepaliTitle: 'कार्ड भुक्तानी अनुरोध पेश भयो (Pending)',
+              message: `Card recharge request of $${calculatedUsd} USD (+${totalCoins.toLocaleString()} Coins) is submitted and awaiting admin approval (Up to 24 hours).`,
+              nepaliMessage: `कार्ड भुक्तानी ($${calculatedUsd} USD / +${totalCoins.toLocaleString()} Coins) अनुरोध पेश भयो। एडमिन प्रमाणीकरण हुन २४ घण्टा सम्म लाग्न सक्छ।`,
+              severity: 'info',
+            });
 
             // Clear inputs if not saved
             if (!saveCard) {
@@ -945,13 +976,70 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
               setCardCvv('');
             }
 
-            setTimeout(() => {
-              onClose();
-            }, 3500);
+            setSubmittedClaim(newClaim);
           }, 600);
         }, 600);
       }, 700);
     }, 800);
+  };
+
+  // Admin approves claim -> credits coins & notifies user
+  const handleAdminApprove = (claim: RechargeClaim) => {
+    const ok = window.confirm(
+      `के तपाईं ${claim.userName} (ID: ${claim.userId}) को +${claim.coins.toLocaleString()} Coins रिचार्ज अनुरोध स्वीकृत गर्न चाहनुहुन्छ?\nरकम: ${claim.currencySymbol} ${claim.localAmount}`
+    );
+    if (!ok) return;
+
+    updateRechargeClaimStatus(claim.id, 'verified');
+    setClaimsList(getAllRechargeClaims());
+
+    // Credit coins immediately
+    onRechargeCoins(claim.coins);
+
+    // Save persistent backup for user coins
+    try {
+      const currentStored = parseInt(localStorage.getItem('tiktop_coins') || '0', 10);
+      localStorage.setItem('tiktop_coins', (currentStored + claim.coins).toString());
+    } catch {
+      // Ignore
+    }
+
+    // Save notification in inbox
+    saveInboxNotice({
+      type: 'recharge',
+      title: 'Recharge Approved',
+      nepaliTitle: '🎉 रिचार्ज स्वीकृत भयो!',
+      message: `Your recharge of ${claim.currencySymbol} ${claim.localAmount} has been approved. +${claim.coins.toLocaleString()} Coins added to your balance.`,
+      nepaliMessage: `तपाईंको रू ${claim.localAmount} को रिचार्ज अनुरोध एडमिनले स्वीकृत गर्नुभयो! +${claim.coins.toLocaleString()} Coins तपाईंको खातामा जम्मा भयो।`,
+      severity: 'info',
+    });
+
+    setSuccessMessage(`✅ ${claim.userName} को रिचार्ज स्वीकृत गरियो! +${claim.coins.toLocaleString()} Coins खातामा जम्मा भयो।`);
+    setTimeout(() => setSuccessMessage(''), 4000);
+  };
+
+  // Admin rejects claim -> logs reason & notifies user
+  const handleAdminReject = (claim: RechargeClaim) => {
+    const reason = window.prompt(
+      'यो रिचार्ज अनुरोध अस्वीकार गर्नुको कारण लेख्नुहोस् (जस्तै: खातामा रकम नआएको / नक्कली रसिद):',
+      'खातामा रकम प्राप्त भएन / अमान्य रसिद'
+    );
+    if (reason === null) return;
+
+    updateRechargeClaimStatus(claim.id, 'rejected', reason || 'अमान्य भुक्तानी');
+    setClaimsList(getAllRechargeClaims());
+
+    saveInboxNotice({
+      type: 'recharge',
+      title: 'Recharge Rejected',
+      nepaliTitle: '❌ रिचार्ज अस्वीकृत भयो',
+      message: `Your recharge request (${claim.id}) was rejected: ${reason}`,
+      nepaliMessage: `तपाईंको रिचार्ज अनुरोध (${claim.id}) अस्वीकृत भएको छ। कारण: ${reason}`,
+      severity: 'warning',
+    });
+
+    setErrorMessage(`❌ अनुरोध अस्वीकृत गरियो: ${reason}`);
+    setTimeout(() => setErrorMessage(''), 4000);
   };
 
   const handleAdminRevoke = (claim: RechargeClaim) => {
@@ -963,6 +1051,16 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
       updateRechargeClaimStatus(claim.id, 'rejected', reason || 'अमान्य भुक्तानी');
       setClaimsList(getAllRechargeClaims());
     }
+  };
+
+  const handleSaveAdminPhone = () => {
+    if (!tempAdminPhone.trim() || tempAdminPhone.trim().length < 8) {
+      alert('कृपया मान्य फोन वा WhatsApp नम्बर प्रविष्ट गर्नुहोस् (जस्तै: +9779863991384)');
+      return;
+    }
+    setAdminWhatsAppPhone(tempAdminPhone.trim());
+    setAdminPhone(tempAdminPhone.trim());
+    setIsEditingAdminPhone(false);
   };
 
   const totalCoinsDistributed = claimsList
@@ -1062,32 +1160,156 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
             </span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('admin_panel');
-              setErrorMessage('');
-            }}
-            className={`pb-2.5 px-3 border-b-2 transition-all flex items-center gap-1.5 ml-auto ${
-              activeTab === 'admin_panel'
-                ? 'border-rose-500 text-rose-300'
-                : 'border-transparent text-neutral-400 hover:text-rose-300'
-            }`}
-          >
-            <ShieldAlert size={14} className="text-rose-400" />
-            <span>👨‍💻 एडमिन प्यानल</span>
-            {claimsList.length > 0 && (
-              <span className="px-1.5 py-0.2 text-[9px] rounded-full bg-rose-600 text-white font-black">
-                {claimsList.length}
-              </span>
-            )}
-          </button>
+          {isUserAdminAuthorized(userProfile || authUser) && (
+            <button
+              type="button"
+              id="btn-recharge-modal-admin-tab"
+              onClick={() => {
+                if (onOpenAdminPanel) {
+                  onClose();
+                  onOpenAdminPanel();
+                } else {
+                  setActiveTab('admin_panel');
+                  setErrorMessage('');
+                }
+              }}
+              className={`pb-2.5 px-3 border-b-2 transition-all flex items-center gap-1.5 ml-auto cursor-pointer ${
+                activeTab === 'admin_panel'
+                  ? 'border-rose-500 text-rose-300'
+                  : 'border-transparent text-neutral-400 hover:text-rose-300'
+              }`}
+            >
+              <ShieldAlert size={14} className="text-rose-400" />
+              <span>👨‍💻 एडमिन प्यानल</span>
+              {claimsList.filter((c) => c.status === 'pending').length > 0 ? (
+                <span className="px-1.5 py-0.5 text-[9px] rounded-full bg-amber-400 text-black font-black animate-pulse shadow-sm shadow-amber-400/50">
+                  {claimsList.filter((c) => c.status === 'pending').length} नयाँ
+                </span>
+              ) : claimsList.length > 0 ? (
+                <span className="px-1.5 py-0.2 text-[9px] rounded-full bg-rose-600 text-white font-black">
+                  {claimsList.length}
+                </span>
+              ) : null}
+            </button>
+          )}
         </div>
 
         {/* Content Body */}
         <div className="overflow-y-auto p-4 space-y-4 flex-1">
-          {/* TAB 1: RECHARGE WITH SCREENSHOT */}
-          {activeTab === 'recharge' && (
+          {/* TAB 1 (SUBMITTED RECEIPT): SHOWN ONLY AFTER USER APPLIES FOR RECHARGE */}
+          {activeTab === 'recharge' && submittedClaim && (
+            <div className="p-4 bg-neutral-950 border border-amber-500/40 rounded-3xl text-center space-y-4 animate-fade-in shadow-2xl">
+              <div className="w-16 h-16 rounded-full bg-amber-500/20 border-2 border-amber-400 mx-auto flex items-center justify-center text-amber-300 shadow-xl shadow-amber-500/30">
+                <Clock size={34} className="text-amber-400 animate-pulse" />
+              </div>
+
+              <div>
+                <h4 className="text-lg font-black text-white">रिचार्ज अनुरोध सफलतापूर्वक दर्ता भयो! 📋</h4>
+                <p className="text-xs text-neutral-300 mt-1">
+                  तपाईंको भुक्तानी विवरण र रसिद सुरक्षित रूपमा पेश भइसकेको छ।
+                </p>
+              </div>
+
+              {/* MANDATE: 24-HOUR NOTICE ONLY DISPLAYED AFTER APPLYING */}
+              <div className="p-4 bg-gradient-to-br from-amber-500/20 via-amber-950/40 to-neutral-900 border-2 border-amber-400/60 rounded-2xl text-left space-y-2 shadow-lg">
+                <div className="flex items-center gap-2 text-amber-300 font-bold text-xs">
+                  <Clock size={18} className="text-amber-400 shrink-0 animate-bounce" />
+                  <span>महत्त्वपूर्ण जानकारी (Approval & Processing Time Notice):</span>
+                </div>
+                <p className="text-xs text-amber-100 leading-relaxed font-medium">
+                  ⏳ भुक्तानी रसिद रुजु र एडमिनबाट स्वीकृति (Admin Approval) हुन <strong>२४ घण्टा (Up to 24 Hours)</strong> सम्म लाग्न सक्छ।
+                  एडमिनले तपाईंको रकम खातामा आएको रुजु गरी स्वीकृति (Approval) दिएपछि मात्र तपाईंको खातामा सिक्का (Coins) तुरुन्तै लोड हुनेछ।
+                </p>
+              </div>
+
+              {/* MANDATE: IMMEDIATE WHATSAPP NOTIFICATION TO ADMIN */}
+              <div className="p-3.5 bg-emerald-950/70 border border-emerald-500/50 rounded-2xl text-left space-y-2 shadow-md">
+                <div className="flex items-center gap-2 text-emerald-300 font-bold text-xs">
+                  <MessageCircle size={16} className="text-emerald-400" />
+                  <span>एडमिनलाई WhatsApp मा तत्काल जानकारी गराउनुहोस्:</span>
+                </div>
+                <p className="text-[11px] text-emerald-100/90 leading-relaxed">
+                  छिटो स्वीकृति (Instant Review) का लागि एडमिनको WhatsApp ({adminPhone}) मा यो अर्डर र रसिदको SMS तुरुन्तै पठाउनुहोस्:
+                </p>
+                <a
+                  href={buildRechargeWhatsAppUrl(submittedClaim, adminPhone)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30 transition-all active:scale-[0.98]"
+                >
+                  <MessageCircle size={18} className="text-white shrink-0" />
+                  <span>📱 एडमिनलाई WhatsApp मा तुरुन्तै SMS पठाउनुहोस् ({adminPhone})</span>
+                </a>
+              </div>
+
+              {/* Receipt Summary Card */}
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-3.5 text-left space-y-2 text-xs font-mono">
+                <div className="flex justify-between pb-1.5 border-b border-white/10">
+                  <span className="text-neutral-400 font-sans">Reference ID:</span>
+                  <span className="font-bold text-amber-300">{submittedClaim.id}</span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-neutral-400 font-sans">माग्नुभएको सिक्का:</span>
+                  <span className="font-bold text-amber-300">+{submittedClaim.coins.toLocaleString()} Coins</span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-neutral-400 font-sans">भुक्तानी रकम:</span>
+                  <span className="font-bold text-white">
+                    {submittedClaim.currencySymbol} {submittedClaim.localAmount.toLocaleString()} (${submittedClaim.usdAmount.toFixed(2)} USD)
+                  </span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-neutral-400 font-sans">भुक्तानी माध्यम:</span>
+                  <span className="font-sans font-bold text-white">{submittedClaim.methodName}</span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-neutral-400 font-sans">पठाउने खाता/नम्बर:</span>
+                  <span className="text-white">{submittedClaim.senderAccount}</span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-neutral-400 font-sans">गन्तव्य खाता:</span>
+                  <span className="text-white">{submittedClaim.targetAccount}</span>
+                </div>
+
+                <div className="flex justify-between pt-1.5 border-t border-white/10">
+                  <span className="text-neutral-400 font-sans">हालको स्थिति:</span>
+                  <span className="text-amber-400 font-sans font-bold flex items-center gap-1">
+                    <Clock size={12} />
+                    <span>⏳ एडमिन स्वीकृति पर्खिरहेको (Pending - २४ घण्टा भित्र)</span>
+                  </span>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setSubmittedClaim(null)}
+                  className="py-2.5 px-3 rounded-xl bg-white/10 hover:bg-white/20 text-neutral-200 font-bold text-xs transition-all cursor-pointer"
+                >
+                  नयाँ रिचार्ज फारम
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSubmittedClaim(null);
+                    setActiveTab('history');
+                  }}
+                  className="py-2.5 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs transition-all shadow-md cursor-pointer"
+                >
+                  मेरो भुक्तानी इतिहास
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 1 (ACTIVE FORM): SHOWN ONLY WHEN NOT SUBMITTED */}
+          {activeTab === 'recharge' && !submittedClaim && (
             <div className="space-y-4">
               {/* Current Coins Balance */}
               <div className="bg-neutral-950 border border-white/10 rounded-2xl p-3 flex items-center justify-between">
@@ -2022,10 +2244,16 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
                             className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
                               claim.status === 'verified'
                                 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                : claim.status === 'pending'
+                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse'
                                 : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
                             }`}
                           >
-                            {claim.status === 'verified' ? 'स्वीकृत (Coins Loaded)' : 'रद्द (Revoked)'}
+                            {claim.status === 'verified'
+                              ? 'स्वीकृत (Coins Loaded)'
+                              : claim.status === 'pending'
+                              ? '⏳ विचाराधीन (Pending Approval - २४ घण्टा भित्र)'
+                              : 'रद्द (Revoked)'}
                           </span>
                         </div>
 
@@ -2038,18 +2266,30 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
                           </div>
                         </div>
 
-                        {claim.receiptImage && (
-                          <div className="pt-1">
+                        <div className="flex items-center justify-between pt-1 gap-2 flex-wrap">
+                          {claim.receiptImage ? (
                             <button
                               type="button"
                               onClick={() => setSelectedPreviewImage(claim.receiptImage)}
-                              className="text-[10px] text-amber-400 hover:text-amber-300 underline flex items-center gap-1"
+                              className="text-[10px] text-amber-400 hover:text-amber-300 underline flex items-center gap-1 cursor-pointer"
                             >
                               <Eye size={12} />
                               <span>अपलोड गरिएको रसिद हेर्नुहोस्</span>
                             </button>
-                          </div>
-                        )}
+                          ) : <div />}
+
+                          {claim.status === 'pending' && (
+                            <a
+                              href={buildRechargeWhatsAppUrl(claim, adminPhone)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[10px] text-emerald-300 hover:text-emerald-200 font-bold flex items-center gap-1 bg-emerald-500/20 px-2.5 py-1 rounded-lg border border-emerald-500/40 transition-all"
+                            >
+                              <MessageCircle size={12} />
+                              <span>एडमिनलाई WhatsApp मा SMS पठाउनुहोस्</span>
+                            </a>
+                          )}
+                        </div>
                       </div>
                     ))}
                 </div>
@@ -2057,40 +2297,118 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
             </div>
           )}
 
-          {/* TAB 3: REAL-TIME ADMIN PANEL LIVE FEED (कसले कति coins लियो admin panel मा तुरून्तै जानकारी) */}
+          {/* TAB 3: REAL-TIME ADMIN PANEL (APPROVAL WORKFLOW & WHATSAPP CONFIG) */}
           {activeTab === 'admin_panel' && (
             <div className="space-y-3.5">
+              {/* Admin WhatsApp Setup & Phone Manager */}
+              <div className="p-3.5 bg-gradient-to-r from-emerald-950/60 via-neutral-900 to-neutral-950 border border-emerald-500/40 rounded-2xl space-y-2.5 shadow-md">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <MessageCircle size={18} className="text-emerald-400" />
+                    <span className="text-xs font-black text-white">
+                      📱 एडमिन WhatsApp नम्बर (Notification & Alerts SMS):
+                    </span>
+                  </div>
+                  {!isEditingAdminPhone ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTempAdminPhone(adminPhone);
+                        setIsEditingAdminPhone(true);
+                      }}
+                      className="text-[10px] text-emerald-300 hover:text-emerald-200 font-bold underline cursor-pointer"
+                    >
+                      नम्बर फेर्नुहोस्
+                    </button>
+                  ) : null}
+                </div>
+
+                {!isEditingAdminPhone ? (
+                  <div className="flex items-center justify-between bg-black/40 p-2.5 rounded-xl border border-white/10">
+                    <div>
+                      <span className="text-[10px] text-neutral-400 block font-medium">
+                        हाल अलर्ट जाने WhatsApp नम्बर:
+                      </span>
+                      <span className="text-sm font-black text-emerald-400 font-mono">
+                        {adminPhone}
+                      </span>
+                    </div>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold">
+                      सक्रिय (Active)
+                    </span>
+                  </div>
+                ) : (
+                  <div className="space-y-2 bg-black/40 p-2.5 rounded-xl border border-emerald-500/30">
+                    <span className="text-[10px] text-neutral-300 block">
+                      नयाँ WhatsApp नम्बर प्रविष्ट गर्नुहोस् (देशको कोड सहित, जस्तै +977989863991384):
+                    </span>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={tempAdminPhone}
+                        onChange={(e) => setTempAdminPhone(e.target.value)}
+                        placeholder="+977989863991384"
+                        className="flex-1 bg-neutral-900 border border-emerald-500/50 rounded-xl px-3 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-400"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSaveAdminPhone}
+                        className="py-1.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md cursor-pointer"
+                      >
+                        सेभ गर्नुहोस्
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingAdminPhone(false)}
+                        className="py-1.5 px-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-neutral-300 text-xs cursor-pointer"
+                      >
+                        रद्द
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <p className="text-[10px] text-neutral-400 leading-normal">
+                  💡 प्रयोगकर्ताले रिचार्जको लागि Apply गर्दा यही WhatsApp नम्बरमा तुरुन्तै विवरण सहितको SMS सन्देश आउनेछ।
+                </p>
+              </div>
+
               {/* Admin Stats Banner */}
               <div className="p-3.5 bg-gradient-to-r from-rose-500/20 to-neutral-900 border border-rose-500/40 rounded-2xl space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <ShieldAlert size={18} className="text-rose-400" />
                     <span className="text-xs font-black text-white">
-                      👨‍💻 एडमिन लाइभ मोनिटरिङ प्यानल (Admin Live Feed)
+                      👨‍💻 एडमिन लाइभ स्वीकृति तथा मोनिटरिङ प्यानल
                     </span>
                   </div>
                   <button
                     type="button"
                     onClick={() => setClaimsList(getAllRechargeClaims())}
-                    className="p-1 rounded-lg bg-white/10 hover:bg-white/20 text-neutral-200 text-xs flex items-center gap-1"
+                    className="p-1 rounded-lg bg-white/10 hover:bg-white/20 text-neutral-200 text-xs flex items-center gap-1 cursor-pointer"
                   >
                     <RefreshCw size={12} />
                     <span>ताजा गर्नुहोस्</span>
                   </button>
                 </div>
                 <div className="text-[10px] text-neutral-300">
-                  कसले कहिले कति रकम पठाई कति Coins प्राप्त गर्‍यो भन्ने जानकारी तत्काल यहाँ देखिन्छ।
+                  प्रयोगकर्ताले पठाएको भुक्तानी रसिद रुजु गरी यहाँबाट स्वीकृति (Approve) दिएपछि मात्र प्रयोगकर्ताको खातामा Coins जम्मा हुन्छ।
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  <div className="p-2 bg-neutral-950/80 rounded-xl border border-white/10">
-                    <span className="text-[9px] text-neutral-400 block">कुल लोड गरिएको सिक्का:</span>
+                <div className="grid grid-cols-3 gap-2 pt-1 text-center">
+                  <div className="p-2 bg-neutral-950/80 rounded-xl border border-amber-500/30">
+                    <span className="text-[9px] text-amber-400 block font-bold">स्वीकृति बाँकी (Pending):</span>
                     <span className="text-sm font-black text-amber-300 font-mono">
-                      {totalCoinsDistributed.toLocaleString()} Coins
+                      {claimsList.filter((c) => c.status === 'pending').length} अनुरोध
                     </span>
                   </div>
                   <div className="p-2 bg-neutral-950/80 rounded-xl border border-white/10">
-                    <span className="text-[9px] text-neutral-400 block">नेपाली रुपैयाँ संकलन (NPR):</span>
+                    <span className="text-[9px] text-neutral-400 block">कुल स्वीकृत सिक्का:</span>
+                    <span className="text-sm font-black text-amber-300 font-mono">
+                      {totalCoinsDistributed.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="p-2 bg-neutral-950/80 rounded-xl border border-white/10">
+                    <span className="text-[9px] text-neutral-400 block">संकलित रकम (NPR):</span>
                     <span className="text-sm font-black text-emerald-400 font-mono">
                       रू. {totalCashCollectedNPR.toLocaleString()}
                     </span>
@@ -2098,114 +2416,246 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
                 </div>
               </div>
 
-              {/* Real-Time Live Stream of Coin Claims */}
-              {claimsList.length === 0 ? (
-                <div className="p-8 text-center bg-neutral-950 rounded-2xl border border-white/10">
-                  <span className="text-xs text-neutral-400 block font-bold">
-                    हालसम्म कुनै पनि प्रयोगकर्ताले रिचार्ज गरेका छैनन्।
+              {/* SECTION 1: PENDING APPROVAL REQUESTS (स्वीकृति पर्खिरहेका रिचार्जहरू) */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between px-1 text-[11px] font-bold">
+                  <span className="text-amber-400 flex items-center gap-1.5">
+                    <Clock size={14} className="text-amber-400 animate-pulse" />
+                    <span>१. स्वीकृति पर्खिरहेका अनुरोधहरू ({claimsList.filter((c) => c.status === 'pending').length}):</span>
                   </span>
+                  {claimsList.filter((c) => c.status === 'pending').length > 0 && (
+                    <span className="text-[10px] text-amber-300 font-mono bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/40">
+                      तत्काल रुजु आवश्यक
+                    </span>
+                  )}
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between px-1 text-[11px] font-bold text-neutral-400">
-                    <span>ताजा रिचार्ज विवरणहरू ({claimsList.length}):</span>
-                    <span className="text-emerald-400 flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                      लाइभ अपडेट सक्रिय
+
+                {claimsList.filter((c) => c.status === 'pending').length === 0 ? (
+                  <div className="p-6 text-center bg-neutral-950/80 rounded-2xl border border-white/10 space-y-1">
+                    <ShieldCheck size={28} className="text-emerald-400 mx-auto" />
+                    <span className="text-xs text-neutral-300 block font-bold">
+                      हाल कुनै पनि रिचार्ज अनुरोध स्वीकृतिका लागि बाँकी छैन।
+                    </span>
+                    <span className="text-[10px] text-neutral-500 block">
+                      नयाँ प्रयोगकर्ताले रिचार्ज पेश गर्नासाथ यहाँ देखिनेछ र तपाईंको WhatsApp मा सूचना आउनेछ।
                     </span>
                   </div>
-
-                  {claimsList.map((claim) => (
-                    <div
-                      key={claim.id}
-                      className={`p-3.5 rounded-2xl border transition-all ${
-                        claim.status === 'verified'
-                          ? 'bg-neutral-950 border-emerald-500/40 shadow-md'
-                          : 'bg-neutral-950/60 border-rose-500/30 opacity-70'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between pb-2 border-b border-white/10">
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 font-black text-xs flex items-center justify-center border border-amber-400/40">
-                            {claim.userName.charAt(0)}
-                          </div>
-                          <div>
-                            <span className="text-xs font-bold text-white block">
-                              {claim.userName}
-                            </span>
-                            <span className="text-[10px] font-mono text-neutral-400">
-                              ID: {claim.userId}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="text-right">
-                          <span className="text-xs sm:text-sm font-black text-amber-300 font-mono block">
-                            +{claim.coins.toLocaleString()} Coins
-                          </span>
-                          <span className="text-[10px] text-emerald-400 font-bold">
-                            रू. {claim.localAmount} (${claim.usdAmount} USD)
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="py-2 grid grid-cols-2 gap-2 text-[11px] font-mono">
-                        <div className="p-2 bg-white/5 rounded-xl">
-                          <span className="text-[9px] text-neutral-400 block font-sans">
-                            गन्तव्य खाता (तोकिएको खाता):
-                          </span>
-                          <span className="font-bold text-white text-xs">{claim.targetAccount}</span>
-                          <span className="text-[9px] text-neutral-400 block">
-                            सेन्डर: {claim.senderAccount}
-                          </span>
-                        </div>
-
-                        <div className="p-2 bg-white/5 rounded-xl">
-                          <span className="text-[9px] text-neutral-400 block font-sans">
-                            पठाएको मिति / समय:
-                          </span>
-                          <span className="font-bold text-white text-xs">{claim.paymentDate}</span>
-                          <span className="text-[9px] text-neutral-400 block">
-                            समय: {new Date(claim.submittedAt).toLocaleTimeString()}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Receipt Preview Thumbnail */}
-                      <div className="flex items-center justify-between pt-1">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedPreviewImage(claim.receiptImage)}
-                          className="text-[10px] text-sky-400 hover:text-sky-300 underline flex items-center gap-1 font-bold"
+                ) : (
+                  <div className="space-y-3">
+                    {claimsList
+                      .filter((c) => c.status === 'pending')
+                      .map((claim) => (
+                        <div
+                          key={claim.id}
+                          className="p-3.5 rounded-2xl border-2 border-amber-500/70 bg-gradient-to-br from-amber-950/30 via-neutral-950 to-neutral-950 shadow-xl space-y-3"
                         >
-                          <ImageIcon size={12} />
-                          <span>रसिदको स्क्रिनसट हेर्नुहोस्</span>
-                        </button>
+                          <div className="flex items-center justify-between pb-2 border-b border-white/10">
+                            <div className="flex items-center gap-2">
+                              <div className="w-9 h-9 rounded-full bg-amber-500/30 text-amber-300 font-black text-sm flex items-center justify-center border border-amber-400">
+                                {claim.userName.charAt(0)}
+                              </div>
+                              <div>
+                                <span className="text-xs font-bold text-white block">
+                                  {claim.userName}
+                                </span>
+                                <span className="text-[10px] font-mono text-neutral-400">
+                                  ID: {claim.userId} • Ref: {claim.id}
+                                </span>
+                              </div>
+                            </div>
 
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/30">
-                            ✅ प्रमाणीकरण सम्पन्न
-                          </span>
+                            <div className="text-right">
+                              <span className="text-sm font-black text-amber-300 font-mono block">
+                                +{claim.coins.toLocaleString()} Coins
+                              </span>
+                              <span className="text-[11px] text-emerald-400 font-bold">
+                                {claim.currencySymbol} {claim.localAmount} (${claim.usdAmount} USD)
+                              </span>
+                            </div>
+                          </div>
 
-                          {claim.status === 'verified' && (
-                            <button
-                              type="button"
-                              onClick={() => handleAdminRevoke(claim)}
-                              className="text-[10px] text-rose-400 hover:text-rose-300 underline font-bold"
-                            >
-                              फ्ल्याग / रद्द
-                            </button>
+                          <div className="grid grid-cols-2 gap-2 text-[11px] font-mono bg-white/5 p-2 rounded-xl">
+                            <div>
+                              <span className="text-[9px] text-neutral-400 block font-sans">
+                                भुक्तानी माध्यम र गन्तव्य:
+                              </span>
+                              <span className="font-bold text-white text-xs block">{claim.methodName}</span>
+                              <span className="text-[10px] text-neutral-300 block">{claim.targetAccount}</span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] text-neutral-400 block font-sans">
+                                सेन्डर खाता र मिति:
+                              </span>
+                              <span className="font-bold text-amber-300 text-xs block">{claim.senderAccount}</span>
+                              <span className="text-[10px] text-neutral-400 block">
+                                {claim.paymentDate} • {new Date(claim.submittedAt).toLocaleTimeString()}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Quick Actions for Admin */}
+                          <div className="flex items-center justify-between gap-2 pt-1 flex-wrap">
+                            <div className="flex items-center gap-2">
+                              {claim.receiptImage && (
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedPreviewImage(claim.receiptImage)}
+                                  className="text-[11px] text-sky-400 hover:text-sky-300 underline flex items-center gap-1 font-bold cursor-pointer"
+                                >
+                                  <Eye size={13} />
+                                  <span>रसिद हेर्नुहोस्</span>
+                                </button>
+                              )}
+                              <a
+                                href={buildRechargeWhatsAppUrl(claim, adminPhone)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[11px] text-emerald-400 hover:text-emerald-300 underline flex items-center gap-1 font-bold"
+                              >
+                                <MessageCircle size={13} />
+                                <span>WhatsApp सन्देश</span>
+                              </a>
+                            </div>
+
+                            <div className="flex items-center gap-2 ml-auto">
+                              <button
+                                type="button"
+                                onClick={() => handleAdminReject(claim)}
+                                className="py-1.5 px-3 rounded-xl bg-rose-600/30 hover:bg-rose-600/50 text-rose-300 border border-rose-500/40 text-xs font-bold transition-all cursor-pointer"
+                              >
+                                ❌ अस्वीकार
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleAdminApprove(claim)}
+                                className="py-1.5 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-lg shadow-emerald-600/30 transition-all flex items-center gap-1 cursor-pointer active:scale-95"
+                              >
+                                <Check size={14} />
+                                <span>✅ स्वीकृत गर्नुहोस् (+{claim.coins.toLocaleString()} Coins)</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+
+              {/* SECTION 2: APPROVED & COMPLETED RECHARGES */}
+              <div className="space-y-2.5 pt-2">
+                <div className="flex items-center justify-between px-1 text-[11px] font-bold text-neutral-400">
+                  <span className="flex items-center gap-1.5 text-emerald-400">
+                    <Check size={14} />
+                    <span>२. स्वीकृत भइसकेका रिचार्जहरू ({claimsList.filter((c) => c.status === 'verified').length}):</span>
+                  </span>
+                  <span className="text-emerald-400 flex items-center gap-1 text-[10px]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                    सम्पन्न
+                  </span>
+                </div>
+
+                {claimsList.filter((c) => c.status === 'verified').length === 0 ? (
+                  <div className="p-4 text-center bg-neutral-950/60 rounded-2xl border border-white/5">
+                    <span className="text-xs text-neutral-500 block">
+                      हालसम्म कुनै पनि रिचार्ज स्वीकृत भएको छैन।
+                    </span>
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {claimsList
+                      .filter((c) => c.status === 'verified')
+                      .map((claim) => (
+                        <div
+                          key={claim.id}
+                          className="p-3 bg-neutral-950 border border-emerald-500/40 rounded-2xl space-y-2 shadow-sm"
+                        >
+                          <div className="flex items-center justify-between pb-1.5 border-b border-white/10">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-xs flex items-center justify-center border border-emerald-500/40">
+                                {claim.userName.charAt(0)}
+                              </div>
+                              <div>
+                                <span className="text-xs font-bold text-white block">
+                                  {claim.userName}
+                                </span>
+                                <span className="text-[10px] font-mono text-neutral-400">
+                                  ID: {claim.userId}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="text-right">
+                              <span className="text-xs font-black text-amber-300 font-mono block">
+                                +{claim.coins.toLocaleString()} Coins
+                              </span>
+                              <span className="text-[10px] text-emerald-400 font-bold">
+                                {claim.currencySymbol} {claim.localAmount}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between text-[11px] font-mono text-neutral-300">
+                            <span>
+                              {claim.methodName} ({claim.paymentDate})
+                            </span>
+                            <div className="flex items-center gap-2">
+                              {claim.receiptImage && (
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedPreviewImage(claim.receiptImage)}
+                                  className="text-[10px] text-sky-400 hover:text-sky-300 underline"
+                                >
+                                  रसिद
+                                </button>
+                              )}
+                              <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/15 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                                ✅ स्वीकृत
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleAdminRevoke(claim)}
+                                className="text-[10px] text-rose-400 hover:text-rose-300 underline font-bold"
+                              >
+                                रद्द
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+
+              {/* SECTION 3: REJECTED REQUESTS */}
+              {claimsList.filter((c) => c.status === 'rejected').length > 0 && (
+                <div className="space-y-2 pt-2">
+                  <span className="text-[11px] font-bold text-rose-400 block px-1">
+                    ३. अस्वीकृत गरिएका अनुरोधहरू ({claimsList.filter((c) => c.status === 'rejected').length}):
+                  </span>
+                  <div className="space-y-2">
+                    {claimsList
+                      .filter((c) => c.status === 'rejected')
+                      .map((claim) => (
+                        <div
+                          key={claim.id}
+                          className="p-3 bg-neutral-950/60 border border-rose-500/30 rounded-2xl space-y-1.5 opacity-80"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-white">
+                              {claim.userName} (ID: {claim.userId})
+                            </span>
+                            <span className="text-xs text-rose-400 font-bold">
+                              रू. {claim.localAmount} (रद्द)
+                            </span>
+                          </div>
+                          {claim.rejectionReason && (
+                            <div className="text-[10px] text-rose-300 font-medium">
+                              कारण: {claim.rejectionReason}
+                            </div>
                           )}
                         </div>
-                      </div>
-
-                      {claim.rejectionReason && (
-                        <div className="mt-1.5 p-2 rounded-xl bg-rose-500/15 text-[10px] text-rose-300 font-bold">
-                          रद्द कारण: {claim.rejectionReason}
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                      ))}
+                  </div>
                 </div>
               )}
             </div>

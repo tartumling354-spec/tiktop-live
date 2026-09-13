@@ -5,12 +5,18 @@ import {
   ArrowRight,
   ShieldCheck,
   CheckCircle2,
+  XCircle,
   Clock,
   History,
   AlertCircle,
   Smartphone,
   Sparkles,
+  MessageCircle,
 } from 'lucide-react';
+import { buildWithdrawWhatsAppUrl, getAdminWhatsAppPhone } from '../utils/rechargeVerificationDb';
+import { saveInboxNotice } from '../utils/inboxNotices';
+import { saveWithdrawalRequest, getAllWithdrawalRequests, AdminWithdrawalRequest } from '../utils/adminFinanceDb';
+import { UserProfile, AuthUser } from '../types';
 
 export interface WithdrawalRecord {
   id: string;
@@ -26,7 +32,8 @@ export interface WithdrawalRecord {
   method?: string;
   accountNumber: string;
   accountName: string;
-  status: 'completed' | 'processing';
+  bankName?: string;
+  status: 'pending' | 'completed' | 'processing' | 'rejected';
   timestamp: string;
 }
 
@@ -35,6 +42,8 @@ interface WithdrawPointsModalProps {
   onClose: () => void;
   userPoints?: number;
   currentPoints?: number;
+  userProfile?: UserProfile;
+  authUser?: AuthUser | null;
   onWithdrawSuccess?: (pointsToDeduct: number, record: WithdrawalRecord) => void;
 }
 
@@ -230,6 +239,8 @@ export const WithdrawPointsModal: React.FC<WithdrawPointsModalProps> = ({
   onClose,
   userPoints,
   currentPoints,
+  userProfile,
+  authUser,
   onWithdrawSuccess,
 }) => {
   const actualUserPoints = typeof userPoints === 'number' ? userPoints : (typeof currentPoints === 'number' ? currentPoints : 0);
@@ -342,6 +353,10 @@ export const WithdrawPointsModal: React.FC<WithdrawPointsModalProps> = ({
 
       const netFormatted = `$${netUSD.toFixed(2)} USD`;
 
+      const applicantId = userProfile?.userId || authUser?.id || 'USR-35400';
+      const applicantName = userProfile?.name || authUser?.name || accountHolderName.trim();
+      const applicantAvatar = userProfile?.avatar || authUser?.avatar;
+
       const record: WithdrawalRecord = {
         id: `WD-${Date.now().toString().slice(-6)}`,
         points: pointsAmount,
@@ -356,15 +371,73 @@ export const WithdrawPointsModal: React.FC<WithdrawPointsModalProps> = ({
         method: activeMethod.name,
         accountNumber: accountNumber.trim(),
         accountName: accountHolderName.trim(),
-        status: 'completed',
+        bankName: bankName.trim() || undefined,
+        status: 'pending', // PENDING MANUAL ADMIN APPROVAL (Never automatic)
         timestamp: new Date().toLocaleString(),
       };
 
-      // Save to history
+      // Save to centralized Admin Database
+      saveWithdrawalRequest({
+        id: record.id,
+        userId: applicantId,
+        userName: applicantName,
+        userAvatar: applicantAvatar,
+        points: record.points,
+        grossUSD: record.grossUSD ?? 0,
+        taxUSD: record.taxUSD ?? 0,
+        netUSD: record.netUSD ?? 0,
+        amountFormatted: record.amountFormatted,
+        currency: 'USD',
+        country: record.country,
+        paymentMethod: record.paymentMethod,
+        accountNumber: record.accountNumber,
+        accountName: record.accountName,
+        bankName: record.bankName,
+        status: 'pending',
+        timestamp: record.timestamp,
+      });
+
+      // Save to user history
       const updatedHistory = [record, ...history];
       setHistory(updatedHistory);
       try {
         localStorage.setItem('tiktop_withdrawal_history', JSON.stringify(updatedHistory));
+      } catch {
+        // Ignore
+      }
+
+      // Automatic WhatsApp SMS trigger to Admin (+977 989863991384)
+      const whatsappUrl = buildWithdrawWhatsAppUrl({
+        id: record.id,
+        accountName: record.accountName,
+        points: record.points,
+        amountFormatted: record.amountFormatted,
+        grossUSD: record.grossUSD ?? 0,
+        taxUSD: record.taxUSD,
+        netUSD: record.netUSD ?? 0,
+        paymentMethod: record.paymentMethod,
+        accountNumber: record.accountNumber,
+        country: record.country,
+        timestamp: record.timestamp,
+        bankName: record.bankName,
+      });
+
+      try {
+        window.open(whatsappUrl, '_blank');
+      } catch (err) {
+        console.warn('WhatsApp window open failed (browser popup blocker):', err);
+      }
+
+      // Save Inbox Notification
+      try {
+        saveInboxNotice({
+          type: 'recharge',
+          title: 'Points Withdrawal Request Submitted',
+          nepaliTitle: 'Points निकासी अनुरोध पेश भयो (Pending)',
+          message: `Your withdrawal request of ${record.amountFormatted} (${record.points.toLocaleString()} Points) via ${record.paymentMethod} has been registered. It requires manual Admin approval (within 24 hours). Admin alerted via WhatsApp (+977 989863991384).`,
+          nepaliMessage: `तपाईंको ${record.amountFormatted} (${record.points.toLocaleString()} Points) को निकासी अनुरोध पेश भएको छ। एडमिनको म्यानुअल स्वीकृति पश्चात २४ घण्टा भित्र रकम पठाइनेछ। एडमिनलाई WhatsApp (+977 989863991384) मा सूचना पठाइएको छ।`,
+          severity: 'info',
+        });
       } catch {
         // Ignore
       }
@@ -773,6 +846,18 @@ export const WithdrawPointsModal: React.FC<WithdrawPointsModalProps> = ({
                 तपाईंको निकासी अनुरोध सफलतापूर्वक पेश भएको छ।
               </p>
 
+              {/* 24-hour Clear Notice - Displayed ONLY after applying */}
+              <div className="p-3.5 bg-amber-500/15 border border-amber-500/40 rounded-2xl text-left space-y-1.5 shadow-md">
+                <div className="flex items-center gap-2 text-amber-300 font-bold text-xs">
+                  <Clock size={16} className="text-amber-400 shrink-0" />
+                  <span>प्रक्रिया समय (Processing Time Notice):</span>
+                </div>
+                <p className="text-xs text-amber-100 leading-relaxed font-medium">
+                  बैंक वा वालेट खातामा रकम जम्मा हुन <strong>२४ घण्टा (Up to 24 Hours)</strong> सम्म लाग्न सक्छ।
+                  तपाईंको निकासी विवरण सुरक्षित रूपमा दर्ता भइसकेको छ र स्वीकृतिको प्रक्रियामा छ।
+                </p>
+              </div>
+
               {/* Receipt Details Card */}
               <div className="bg-white/5 border border-white/10 rounded-xl p-3.5 text-left space-y-2 text-xs">
                 <div className="flex justify-between pb-1.5 border-b border-white/10">
@@ -829,12 +914,58 @@ export const WithdrawPointsModal: React.FC<WithdrawPointsModalProps> = ({
 
                 <div className="flex justify-between pt-1 border-t border-white/10">
                   <span className="text-neutral-400">स्थिति (Status):</span>
-                  <span className="text-emerald-400 font-bold flex items-center gap-1">
-                    <CheckCircle2 size={12} />
-                    <span>सफल (Approved - USD Payout Processed)</span>
+                  <span
+                    className={`font-bold flex items-center gap-1 text-xs ${
+                      completedWithdrawal.status === 'completed'
+                        ? 'text-emerald-400'
+                        : completedWithdrawal.status === 'rejected'
+                        ? 'text-rose-400'
+                        : 'text-amber-300'
+                    }`}
+                  >
+                    {completedWithdrawal.status === 'completed' ? (
+                      <>
+                        <CheckCircle2 size={13} />
+                        <span>सफल (भुक्तानी सम्पन्न)</span>
+                      </>
+                    ) : completedWithdrawal.status === 'rejected' ? (
+                      <>
+                        <XCircle size={13} />
+                        <span>अस्वीकृत (Points फिर्ता भयो)</span>
+                      </>
+                    ) : (
+                      <>
+                        <Clock size={13} className="animate-spin text-amber-400" />
+                        <span>⏳ विचाराधीन (एडमिन स्वीकृति बाँकी)</span>
+                      </>
+                    )}
                   </span>
                 </div>
               </div>
+
+              {/* Direct WhatsApp SMS Button to Admin (+977 989863991384) */}
+              <a
+                href={buildWithdrawWhatsAppUrl({
+                  id: completedWithdrawal.id,
+                  accountName: completedWithdrawal.accountName,
+                  points: completedWithdrawal.points,
+                  amountFormatted: completedWithdrawal.amountFormatted,
+                  grossUSD: completedWithdrawal.grossUSD || 0,
+                  taxUSD: completedWithdrawal.taxUSD,
+                  netUSD: completedWithdrawal.netUSD || 0,
+                  paymentMethod: completedWithdrawal.paymentMethod,
+                  accountNumber: completedWithdrawal.accountNumber,
+                  country: completedWithdrawal.country,
+                  timestamp: completedWithdrawal.timestamp,
+                  bankName: completedWithdrawal.bankName,
+                })}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs sm:text-sm shadow-xl shadow-emerald-600/30 flex items-center justify-center gap-2 transition-all active:scale-98 cursor-pointer"
+              >
+                <MessageCircle size={16} />
+                <span>📱 एडमिनलाई WhatsApp मा SMS पठाउनुहोस् (+977 989863991384)</span>
+              </a>
 
               <button
                 type="button"
@@ -842,7 +973,7 @@ export const WithdrawPointsModal: React.FC<WithdrawPointsModalProps> = ({
                   setCompletedWithdrawal(null);
                   setActiveTab('history');
                 }}
-                className="w-full py-2.5 px-4 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs transition-all"
+                className="w-full py-2.5 px-4 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs transition-all cursor-pointer"
               >
                 इतिहास हेर्नुहोस् (View History)
               </button>
@@ -870,31 +1001,70 @@ export const WithdrawPointsModal: React.FC<WithdrawPointsModalProps> = ({
                   {history.map((item) => (
                     <div
                       key={item.id}
-                      className="bg-white/5 border border-white/10 rounded-xl p-3 flex items-center justify-between"
+                      className="bg-white/5 border border-white/10 rounded-xl p-3 space-y-2"
                     >
-                      <div className="space-y-0.5">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-white text-xs">{item.paymentMethod}</span>
-                          <span className="text-[9px] bg-emerald-500/20 text-emerald-400 font-bold px-1.5 py-0.2 rounded-full border border-emerald-500/30">
-                            सफल (Completed)
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-white text-xs">{item.paymentMethod}</span>
+                            <span
+                              className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full border ${
+                                item.status === 'completed'
+                                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                                  : item.status === 'rejected'
+                                  ? 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                                  : 'bg-amber-500/20 text-amber-300 border-amber-500/30 animate-pulse'
+                              }`}
+                            >
+                              {item.status === 'completed'
+                                ? 'सफल (Completed)'
+                                : item.status === 'rejected'
+                                ? 'अस्वीकृत (Refunded)'
+                                : '⏳ विचाराधीन (Pending)'}
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-neutral-400 block font-mono">
+                            A/C: {item.accountNumber} ({item.accountName})
+                          </span>
+                          <span className="text-[9px] text-neutral-500 flex items-center gap-1">
+                            <Clock size={10} />
+                            <span>{item.timestamp}</span>
                           </span>
                         </div>
-                        <span className="text-[10px] text-neutral-400 block font-mono">
-                          A/C: {item.accountNumber} ({item.accountName})
-                        </span>
-                        <span className="text-[9px] text-neutral-500 flex items-center gap-1">
-                          <Clock size={10} />
-                          <span>{item.timestamp}</span>
-                        </span>
+
+                        <div className="text-right">
+                          <span className="text-xs font-black text-emerald-400 block">
+                            +{item.amountFormatted}
+                          </span>
+                          <span className="text-[10px] text-rose-400 font-bold block">
+                            -{item.points.toLocaleString()} Pts
+                          </span>
+                        </div>
                       </div>
 
-                      <div className="text-right">
-                        <span className="text-xs font-black text-emerald-400 block">
-                          +{item.amountFormatted}
-                        </span>
-                        <span className="text-[10px] text-rose-400 font-bold block">
-                          -{item.points.toLocaleString()} Pts
-                        </span>
+                      <div className="pt-1 border-t border-white/5 flex justify-end">
+                        <a
+                          href={buildWithdrawWhatsAppUrl({
+                            id: item.id,
+                            accountName: item.accountName,
+                            points: item.points,
+                            amountFormatted: item.amountFormatted,
+                            grossUSD: item.grossUSD || 0,
+                            taxUSD: item.taxUSD,
+                            netUSD: item.netUSD || 0,
+                            paymentMethod: item.paymentMethod,
+                            accountNumber: item.accountNumber,
+                            country: item.country,
+                            timestamp: item.timestamp,
+                            bankName: item.bankName,
+                          })}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold flex items-center gap-1 underline"
+                        >
+                          <MessageCircle size={11} />
+                          <span>WhatsApp SMS (एडमिनलाई सूचना)</span>
+                        </a>
                       </div>
                     </div>
                   ))}

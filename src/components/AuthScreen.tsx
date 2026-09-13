@@ -79,7 +79,17 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
   // Google Modal State
   const [googleEmail, setGoogleEmail] = useState<string>('tartumling354@gmail.com');
-  const [googleName, setGoogleName] = useState<string>('tar tumling');
+  const [googleName, setGoogleName] = useState<string>(() => {
+    try {
+      const customName = localStorage.getItem('tiktop_custom_user_name');
+      if (customName && customName.trim().length > 0) {
+        return customName.trim();
+      }
+    } catch {
+      // Ignore
+    }
+    return 'tar tumling';
+  });
   const [showCustomGoogleInput, setShowCustomGoogleInput] = useState<boolean>(false);
 
   // Facebook Modal State

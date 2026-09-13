@@ -143,36 +143,57 @@ export const GiftTray: React.FC<GiftTrayProps> = ({
   return (
     <div
       id="gift-tray-backdrop"
-      className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex flex-col justify-end animate-fade-in"
-      onClick={onClose}
+      className="fixed inset-0 z-50 flex flex-col justify-end animate-fade-in pointer-events-none"
     >
+      {/* Upper viewport is 100% transparent and clear so host & party guests are completely visible */}
+      <div
+        className="w-full flex-1 pointer-events-auto cursor-pointer"
+        onClick={onClose}
+        title="लाइभ स्ट्रिम हेर्न वा बन्द गर्न यहाँ थिच्नुहोस्"
+      />
       <div
         id="gift-tray-sheet"
-        className="w-full max-w-xl mx-auto bg-neutral-900/95 border-t border-white/15 rounded-t-3xl p-4 sm:p-5 shadow-2xl animate-slide-up flex flex-col max-h-[88vh] text-white"
+        className="w-full max-w-xl mx-auto bg-neutral-900/98 border-t border-white/20 rounded-t-3xl p-3 sm:p-4 shadow-2xl animate-slide-up flex flex-col max-h-[48vh] sm:max-h-[50vh] text-white pointer-events-auto"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Unobstructed Live Stream Confirmation Bar */}
+        <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-white/10 text-[11px]">
+          <span className="text-emerald-400 font-bold flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>लाइभ स्ट्रिम पूर्ण खुला छ (Face Unobstructed)</span>
+          </span>
+          <div className="w-8 h-1 rounded-full bg-white/20 mx-auto" />
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-[11px] text-neutral-400 hover:text-white px-2 py-0.5 rounded bg-white/10"
+          >
+            बन्द गर्नुहोस्
+          </button>
+        </div>
+
         {/* Header: Title, Coins Balance, Recharge */}
-        <div className="flex items-center justify-between pb-3 border-b border-white/10 gap-2">
+        <div className="flex items-center justify-between pb-2 border-b border-white/10 gap-2">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-amber-500 to-rose-500 flex items-center justify-center text-white shadow">
-              <GiftIcon size={16} />
+            <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-amber-500 to-rose-500 flex items-center justify-center text-white shadow">
+              <GiftIcon size={14} />
             </div>
             <div>
-              <span className="text-sm font-bold text-white block">उपहार पसल (Gift Store)</span>
-              <div className="flex items-center gap-1.5 text-[11px] text-amber-300 font-bold">
-                <Coins size={12} className="text-amber-400" />
+              <span className="text-xs sm:text-sm font-bold text-white block">उपहार पसल (Gift Store)</span>
+              <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] text-amber-300 font-bold">
+                <Coins size={11} className="text-amber-400" />
                 <span>{coinsBalance.toLocaleString()} Coins बाँकी</span>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             {onQuickAddTestCoins && (
               <button
                 type="button"
                 id="btn-quick-test-coins"
                 onClick={onQuickAddTestCoins}
-                className="hidden sm:inline-flex items-center gap-1 text-[11px] bg-emerald-600/80 hover:bg-emerald-500 text-white font-bold px-2.5 py-1 rounded-full border border-emerald-400/30 transition-all shadow-sm active:scale-95"
+                className="hidden sm:inline-flex items-center gap-1 text-[10px] bg-emerald-600/80 hover:bg-emerald-500 text-white font-bold px-2 py-0.5 rounded-full border border-emerald-400/30 transition-all shadow-sm active:scale-95"
                 title="परीक्षणको लागि तत्काल +१००k सिक्का थप्नुहोस्"
               >
                 <span>+100k Test</span>
@@ -182,18 +203,18 @@ export const GiftTray: React.FC<GiftTrayProps> = ({
               type="button"
               id="btn-recharge-coins"
               onClick={handleRecharge}
-              className="text-xs bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-500 hover:brightness-110 text-neutral-950 font-black px-3.5 py-1.5 rounded-full transition-all active:scale-95 shadow-md flex items-center gap-1"
+              className="text-[11px] bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-500 hover:brightness-110 text-neutral-950 font-black px-3 py-1 rounded-full transition-all active:scale-95 shadow-md flex items-center gap-1"
             >
-              <Coins size={13} className="text-neutral-950" />
-              <span>रिचार्ज (Recharge)</span>
+              <Coins size={12} className="text-neutral-950" />
+              <span>रिचार्ज</span>
             </button>
             <button
               type="button"
               id="btn-close-gift-tray"
               onClick={onClose}
-              className="p-1.5 rounded-full text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+              className="p-1 rounded-full text-white/60 hover:text-white hover:bg-white/10 transition-colors"
             >
-              <X size={18} />
+              <X size={16} />
             </button>
           </div>
         </div>
@@ -517,27 +538,14 @@ export const GiftTray: React.FC<GiftTrayProps> = ({
           })}
         </div>
 
-        {/* Footer info and test balance hint */}
-        <div className="pt-2.5 border-t border-white/10 mt-1 flex flex-col sm:flex-row items-center justify-between text-center gap-2">
-          <p className="text-[11px] text-neutral-400">
-            {isPartyLive ? (
-              <span>
-                💡 {isAllSelected ? `स्टेजका सबै ${occupiedCount} जना` : `${selectedSeatNumbers.length} जना साथीहरू (Seat #${selectedSeatNumbers.join(', #')})`} लाई उपहार पठाइनेछ।
-              </span>
-            ) : (
-              <span>🎁 उपहार पठाउँदा होस्टले अंक (Points) प्राप्त गर्नेछन्।</span>
-            )}
-          </p>
-          {onQuickAddTestCoins && (
-            <button
-              type="button"
-              onClick={onQuickAddTestCoins}
-              className="text-[11px] text-amber-400 hover:text-amber-300 underline font-semibold cursor-pointer"
-            >
-              सिक्का सकिएमा यहाँ थिचेर +१००k Coins लिनुहोस्
-            </button>
-          )}
-        </div>
+        {/* Footer info (only party recipient summary if party live) */}
+        {isPartyLive && (
+          <div className="pt-2 border-t border-white/10 mt-1 text-center">
+            <p className="text-[11px] text-neutral-400">
+              💡 {isAllSelected ? `स्टेजका सबै ${occupiedCount} जना` : `${selectedSeatNumbers.length} जना साथीहरू (Seat #${selectedSeatNumbers.join(', #')})`} लाई उपहार पठाइनेछ।
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

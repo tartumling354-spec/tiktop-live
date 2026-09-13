@@ -246,58 +246,65 @@ export const VideoPostModal: React.FC<VideoPostModalProps> = ({
     }
 
     setIsPosting(true);
-    setPostProgress(10);
+    setPostProgress(25);
 
-    // Simulate progress
+    // Smooth deterministic progress increment
     const interval = setInterval(() => {
       setPostProgress((prev) => {
-        if (prev >= 90) {
+        if (prev >= 85) {
           clearInterval(interval);
-          return 95;
+          return 90;
         }
-        return prev + 25;
+        return prev + 30;
       });
-    }, 150);
+    }, 100);
 
     setTimeout(() => {
       clearInterval(interval);
       setPostProgress(100);
 
-      // Create new video object
-      const newVideo: PostVideo = {
-        id: `post-${Date.now()}`,
-        authorName: userProfile?.name || 'TikTop Creator (You)',
-        authorHandle: userProfile?.handle || '@creator_np',
-        authorAvatar: userProfile?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
-        videoUrl: videoUrl,
-        caption: caption.trim() || 'My new video post on TikTop! ✨ #TikTopNepal #Viral',
-        soundTitle: selectedSound,
-        likesCount: 1,
-        commentsCount: 0,
-        sharesCount: 0,
-        isLiked: true,
-        createdAt: 'Just now',
-        tags: caption.match(/#[a-zA-Z0-9_]+/g) || ['#TikTopNepal', '#Viral'],
-        filter: selectedFilter,
-      };
-
-      // Save to localStorage
       try {
-        const stored = localStorage.getItem('tiktop_posted_videos');
-        const list = stored ? JSON.parse(stored) : [];
-        list.unshift(newVideo);
-        localStorage.setItem('tiktop_posted_videos', JSON.stringify(list));
-      } catch (e) {
-        console.warn('Failed to persist video in localStorage:', e);
-      }
+        // Create new video object
+        const newVideo: PostVideo = {
+          id: `post-${Date.now()}`,
+          authorName: userProfile?.name || 'TikTop Creator',
+          authorHandle: userProfile?.handle || '@creator_np',
+          authorAvatar: userProfile?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
+          videoUrl: videoUrl,
+          caption: caption.trim() || 'My new video post on TikTop! ✨ #TikTopNepal #Viral',
+          soundTitle: selectedSound,
+          likesCount: 1,
+          commentsCount: 0,
+          sharesCount: 0,
+          isLiked: true,
+          createdAt: 'Just now',
+          tags: caption.match(/#[\p{L}\p{N}_]+/gu) || ['#TikTopNepal', '#Viral'],
+          filter: selectedFilter,
+        };
 
-      setTimeout(() => {
+        // Save safely to localStorage (max 15 items to avoid storage overflow)
+        try {
+          const stored = localStorage.getItem('tiktop_posted_videos');
+          const list = stored ? JSON.parse(stored) : [];
+          list.unshift(newVideo);
+          localStorage.setItem('tiktop_posted_videos', JSON.stringify(list.slice(0, 15)));
+        } catch (e) {
+          console.warn('LocalStorage save warning:', e);
+        }
+
+        setTimeout(() => {
+          setIsPosting(false);
+          setPostProgress(0);
+          onPostSuccess(newVideo);
+          onClose();
+          resetForm();
+        }, 250);
+      } catch (err) {
+        console.error('Error posting video:', err);
         setIsPosting(false);
-        onPostSuccess(newVideo);
-        onClose();
-        resetForm();
-      }, 400);
-    }, 900);
+        setPostProgress(0);
+      }
+    }, 600);
   };
 
   if (!isOpen) return null;

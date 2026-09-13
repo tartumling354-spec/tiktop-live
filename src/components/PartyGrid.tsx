@@ -59,6 +59,7 @@ interface PartyGridProps {
   onRequestSeat?: (seatNumber: number) => void;
   isUserFanClub?: boolean;
   onJoinFanClub?: () => void;
+  currentUserName?: string;
 }
 
 const SEAT_OPTIONS: PartySeatCount[] = [4, 6, 9, 16, 25];
@@ -92,6 +93,7 @@ export const PartyGrid: React.FC<PartyGridProps> = ({
   onRequestSeat,
   isUserFanClub = true,
   onJoinFanClub,
+  currentUserName,
 }) => {
   // Modals state
   const [activeSeatAction, setActiveSeatAction] = useState<PartySeat | null>(null);
@@ -108,11 +110,19 @@ export const PartyGrid: React.FC<PartyGridProps> = ({
     setTimeout(() => setToastNotice(null), 3500);
   };
 
+  // Helper to reliably check if a seat is the current user's seat
+  const checkIsUserSeat = (seat: PartySeat) => {
+    if (!seat.isOccupied) return false;
+    if (seat.userName?.includes('You')) return true;
+    if (currentUserName && seat.userName && (seat.userName === currentUserName || seat.userName.startsWith(currentUserName))) return true;
+    return false;
+  };
+
   // Find user's currently occupied seat
-  const userSeat = seats.find((s) => s.isOccupied && s.userName?.includes('You'));
+  const userSeat = seats.find((s) => s.isOccupied && checkIsUserSeat(s));
 
   // Determine current user permissions: Host has supreme, Admin has moderator rights
-  const hasModRights = isHost || isAdmin;
+  const hasModRights = isHost || isAdmin || Boolean(userSeat?.isAdmin);
 
   // Calculate Grid classes based on seat count
   const getGridColsClass = () => {
@@ -209,7 +219,7 @@ export const PartyGrid: React.FC<PartyGridProps> = ({
       }
       onTakeSeat(seat.seatNumber);
     } else {
-      const isUserSeat = seat.userName?.includes('You');
+      const isUserSeat = checkIsUserSeat(seat);
       if (isUserSeat) {
         setActiveSeatAction(seat);
       } else {
@@ -369,7 +379,7 @@ export const PartyGrid: React.FC<PartyGridProps> = ({
       {/* Grid Container */}
       <div className={`grid ${getGridColsClass()} mx-auto gap-1.5 sm:gap-2 max-h-[46vh] overflow-y-auto p-1 scrollbar-thin scrollbar-thumb-white/20`}>
         {seats.slice(0, seatCount).map((seat) => {
-          const isUserSeat = seat.userName?.includes('You');
+          const isUserSeat = checkIsUserSeat(seat);
 
           return (
             <div
@@ -514,34 +524,60 @@ export const PartyGrid: React.FC<PartyGridProps> = ({
                     </div>
 
                     <div className="flex items-center gap-0.5">
+                      {/* Video Button / Indicator - Self Only */}
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onToggleSeatVideo(seat.seatNumber);
+                          if (isUserSeat) {
+                            onToggleSeatVideo(seat.seatNumber);
+                          } else {
+                            showToast('📹 क्यामेरा अन/अफ केवल प्रयोगकर्ता स्वयंले मात्र गर्न सक्नुहुन्छ!');
+                          }
                         }}
                         className={`p-0.5 rounded text-[8px] transition-colors ${
                           seat.isVideoOn
                             ? 'bg-emerald-500/80 hover:bg-emerald-500 text-black'
                             : 'bg-black/60 hover:bg-black/80 text-white/60'
-                        }`}
-                        title={seat.isVideoOn ? 'Video is ON' : 'Video is OFF'}
+                        } ${isUserSeat ? 'cursor-pointer' : 'cursor-default'}`}
+                        title={
+                          isUserSeat
+                            ? (seat.isVideoOn ? 'Video ON (Click to turn off)' : 'Video OFF (Click to turn on)')
+                            : (seat.isVideoOn ? 'Video is ON (नियन्त्रण स्वयमले मात्र गर्न मिल्छ)' : 'Video is OFF')
+                        }
                       >
                         {seat.isVideoOn ? <Video size={9} /> : <VideoOff size={9} />}
                       </button>
 
+                      {/* Mic Button - Host, Admin, and Self */}
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onToggleSeatMic(seat.seatNumber);
+                          const canControlMic = isUserSeat || isHost || isAdmin || userSeat?.isAdmin;
+                          if (canControlMic) {
+                            onToggleSeatMic(seat.seatNumber);
+                            if (!isUserSeat) {
+                              showToast(
+                                seat.isMuted
+                                  ? `🎙️ ${seat.userName} को माइक अनम्युट गरियो`
+                                  : `🔇 ${seat.userName} को माइक म्युट गरियो`
+                              );
+                            }
+                          } else {
+                            showToast('🎙️ माइक म्युट/अनम्युट गर्न होस्ट, एडमिन वा स्वयं व्यक्तिले मात्र मिल्छ!');
+                          }
                         }}
                         className={`p-0.5 rounded text-[8px] transition-colors ${
                           seat.isMuted
                             ? 'bg-rose-600 text-white'
                             : 'bg-black/60 text-emerald-400'
-                        }`}
-                        title={seat.isMuted ? 'Muted' : 'Speaking'}
+                        } ${!(isUserSeat || isHost || isAdmin || userSeat?.isAdmin) ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}
+                        title={
+                          (isUserSeat || isHost || isAdmin || userSeat?.isAdmin)
+                            ? (seat.isMuted ? 'Muted (Click to unmute)' : 'Speaking (Click to mute)')
+                            : (seat.isMuted ? 'Muted' : 'Speaking')
+                        }
                       >
                         {seat.isMuted ? <MicOff size={9} /> : <Mic size={9} />}
                       </button>
@@ -833,6 +869,48 @@ export const PartyGrid: React.FC<PartyGridProps> = ({
                 <span>उपहार पठाउनुहोस् (Send Gift to Seat #{inspectedGuestSeat.seatNumber})</span>
               </button>
 
+              {/* 2. Mic Mute / Unmute (Allowed for Host & Admin) */}
+              {(isHost || isAdmin || userSeat?.isAdmin) && (
+                <button
+                  type="button"
+                  id="btn-guest-toggle-mic"
+                  onClick={() => {
+                    onToggleSeatMic(inspectedGuestSeat.seatNumber);
+                    const willMute = !inspectedGuestSeat.isMuted;
+                    setInspectedGuestSeat((prev) => (prev ? { ...prev, isMuted: willMute } : null));
+                    showToast(
+                      willMute
+                        ? `🔇 ${inspectedGuestSeat.userName} को माइक म्युट गरियो`
+                        : `🎙️ ${inspectedGuestSeat.userName} को माइक अनम्युट गरियो`
+                    );
+                  }}
+                  className={`w-full py-2 px-3 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+                    inspectedGuestSeat.isMuted
+                      ? 'bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40'
+                      : 'bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40'
+                  }`}
+                >
+                  {inspectedGuestSeat.isMuted ? <Mic size={14} /> : <MicOff size={14} />}
+                  <span>
+                    {inspectedGuestSeat.isMuted
+                      ? 'माइक अनम्युट गर्नुहोस् (Unmute Mic)'
+                      : 'माइक म्युट गर्नुहोस् (Mute Mic)'}
+                  </span>
+                </button>
+              )}
+
+              {/* Camera Privacy Indicator: Camera can only be changed by the user themselves */}
+              <div className="px-2.5 py-1.5 rounded-xl bg-white/5 border border-white/10 text-[10px] text-neutral-400 flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <Video size={12} className="text-neutral-400" />
+                  <span>क्यामेरा स्थिति:</span>
+                </span>
+                <span className={`font-bold ${inspectedGuestSeat.isVideoOn ? 'text-emerald-400' : 'text-neutral-400'}`}>
+                  {inspectedGuestSeat.isVideoOn ? 'ON 📹' : 'OFF'}
+                  <span className="text-[9px] text-neutral-400 font-normal ml-1">(स्वयमले मात्र अन/अफ गर्न मिल्ने)</span>
+                </span>
+              </div>
+
               {/* 2. Admin Management (Only Host can appoint/remove Admin) */}
               {isHost && !inspectedGuestSeat.isHost && (
                 <button
@@ -886,39 +964,49 @@ export const PartyGrid: React.FC<PartyGridProps> = ({
                     }
 
                     return (
-                      <>
-                        {/* Kick from seat */}
-                        <button
-                          type="button"
-                          id="btn-kick-from-seat"
-                          onClick={() => {
-                            if (onKickFromSeat) {
-                              onKickFromSeat(inspectedGuestSeat.seatNumber, inspectedGuestSeat.userName || 'Guest');
-                            }
-                            showToast(`${inspectedGuestSeat.userName} लाई सिटबाट हटाइयो!`);
-                            setInspectedGuestSeat(null);
-                          }}
-                          className="w-full py-2 px-3 rounded-2xl bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/30 text-rose-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
-                        >
-                          <UserX size={14} />
-                          <span>सिटबाट हटाउनुहोस् (Kick from Seat)</span>
-                        </button>
+                      <div className="space-y-2">
+                        {/* Option 1: Kick from seat ONLY (keeps user in live as viewer) */}
+                        <div className="p-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-1">
+                          <button
+                            type="button"
+                            id="btn-kick-from-seat"
+                            onClick={() => {
+                              if (onKickFromSeat) {
+                                onKickFromSeat(inspectedGuestSeat.seatNumber, inspectedGuestSeat.userName || 'Guest');
+                              }
+                              showToast(`🪑 ${inspectedGuestSeat.userName} लाई सिटबाट हटाइयो (दर्शकको रूपमा लाइभ हेरिरहन सक्नुहुन्छ)`);
+                              setInspectedGuestSeat(null);
+                            }}
+                            className="w-full py-2 px-3 rounded-xl bg-amber-500/25 hover:bg-amber-500/40 border border-amber-500/50 text-amber-200 font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-95 shadow-sm"
+                          >
+                            <UserX size={15} className="text-amber-400" />
+                            <span>सिटबाट मात्र हटाउनुहोस् (दर्शक बनाउनुहोस्)</span>
+                          </button>
+                          <p className="text-[9.5px] text-amber-300/80 text-center px-1">
+                            💡 प्रयोगकर्ता सिटबाट मात्र हट्नुहुनेछ, लाइभ प्रसारण भने दर्शक बनेर निरन्तर हेर्न पाउनेछन्।
+                          </p>
+                        </div>
 
-                        {/* Kick and 30m ban from live */}
-                        <button
-                          type="button"
-                          id="btn-open-30m-ban-modal"
-                          onClick={() => {
-                            const target = inspectedGuestSeat;
-                            setInspectedGuestSeat(null);
-                            setBanTargetSeat(target);
-                          }}
-                          className="w-full py-2 px-3 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-rose-600/30 transition-all active:scale-95"
-                        >
-                          <Ban size={14} />
-                          <span>३० मिनेटका लागि निष्कासन / ब्लक (30m Ban)</span>
-                        </button>
-                      </>
+                        {/* Option 2: 30-Minute Ban from Live (Host & Admin control) */}
+                        <div className="p-2.5 rounded-2xl bg-rose-950/30 border border-rose-500/30 space-y-1">
+                          <button
+                            type="button"
+                            id="btn-open-30m-ban-modal"
+                            onClick={() => {
+                              const target = inspectedGuestSeat;
+                              setInspectedGuestSeat(null);
+                              setBanTargetSeat(target);
+                            }}
+                            className="w-full py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-md shadow-rose-600/30 transition-all active:scale-95"
+                          >
+                            <Ban size={14} />
+                            <span>३० मिनेटका लागि निष्कासन / ब्लक (30m Ban)</span>
+                          </button>
+                          <p className="text-[9.5px] text-rose-300/80 text-center px-1">
+                            🚫 अनुचित व्यवहार गर्नेलाई ३० मिनेटका लागि सिट र सम्पूर्ण लाइभबाट निष्कासन गरिन्छ।
+                          </p>
+                        </div>
+                      </div>
                     );
                   })()}
                 </div>

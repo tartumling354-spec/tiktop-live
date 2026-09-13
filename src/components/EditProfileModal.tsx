@@ -185,12 +185,27 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
       formattedHandle = `@${formattedHandle}`;
     }
 
-    onSave({
+    const updatedProfile: UserProfile = {
+      ...profile,
       name: trimmedName,
       handle: formattedHandle,
       bio: bio.trim(),
       avatar: avatar || profile.avatar,
-    });
+    };
+
+    try {
+      localStorage.setItem('tiktop_custom_user_name', trimmedName);
+      localStorage.setItem('tiktop_custom_user_handle', formattedHandle);
+      if (avatar || profile.avatar) {
+        localStorage.setItem('tiktop_custom_user_avatar', avatar || profile.avatar);
+      }
+      localStorage.setItem('tiktop_custom_user_bio', bio.trim());
+      localStorage.setItem('tiktop_user_profile', JSON.stringify(updatedProfile));
+    } catch {
+      // Ignore
+    }
+
+    onSave(updatedProfile);
 
     handleStopCamera();
     onClose();
