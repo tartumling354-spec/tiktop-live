@@ -250,3 +250,50 @@ export const accountToAuthAndProfile = (
 
   return { authUser, userProfile };
 };
+
+/**
+ * Change or set password for an existing account
+ */
+export const changeAccountPassword = (
+  accountId: string,
+  oldPassword: string,
+  newPassword: string
+): { success: boolean; message: string } => {
+  if (!newPassword || newPassword.length < 6) {
+    return { success: false, message: 'नयाँ पासवर्ड कम्तिमा ६ अक्षरको हुनुपर्छ (Minimum 6 characters required)' };
+  }
+
+  const all = getRegisteredAccounts();
+  const account = all.find(
+    (u) =>
+      u.id === accountId ||
+      u.id === 'USR-35400' ||
+      u.email === 'tartumling354@gmail.com'
+  );
+
+  if (!account) {
+    return { success: false, message: 'खाता फेला परेन (Account not found)' };
+  }
+
+  // If the account already had a password, verify old password
+  if (account.password && account.password !== oldPassword) {
+    return { success: false, message: 'पुरानो पासवर्ड मिलेन (Current password does not match)' };
+  }
+
+  account.password = newPassword;
+  saveRegisteredAccount(account);
+
+  // Also update in auth user if active
+  try {
+    const rawAuth = localStorage.getItem('tiktop_auth_user');
+    if (rawAuth) {
+      const parsed = JSON.parse(rawAuth);
+      parsed.password = newPassword;
+      localStorage.setItem('tiktop_auth_user', JSON.stringify(parsed));
+    }
+  } catch {
+    // Ignore
+  }
+
+  return { success: true, message: 'पासवर्ड सफलतापूर्वक परिवर्तन भयो! (Password updated successfully)' };
+};

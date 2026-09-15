@@ -178,6 +178,9 @@ export interface RechargeClaim {
   userId: string;
   userName: string;
   userAvatar?: string;
+  payerName?: string; // भुक्तानी गर्नेको नाम (Payer Name)
+  payerAddress?: string; // ठेगाना (Address)
+  senderBankOrWallet?: string; // कुन बैंक वा वालेटबाट भुक्तानी गरेको (Sender Bank / Wallet)
   countryCode: string;
   countryName: string;
   methodId: string;

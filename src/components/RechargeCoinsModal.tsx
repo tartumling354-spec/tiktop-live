@@ -31,6 +31,11 @@ import {
   Download,
   Maximize2,
   Landmark,
+  MapPin,
+  User,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { PaymentQrModal } from './PaymentQrModal';
@@ -484,7 +489,10 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
     remarksNote: 'रिमार्क्समा आफ्नो TikTop ID लेख्नुहोस्',
   };
 
-  // Form inputs (NO TRANSACTION ID FIELD, AUTOMATIC DATE LOGIC)
+  // Form inputs (Extended per user requirements)
+  const [payerName, setPayerName] = useState<string>('');
+  const [payerAddress, setPayerAddress] = useState<string>('');
+  const [senderBankOrWallet, setSenderBankOrWallet] = useState<string>('');
   const [senderAccount, setSenderAccount] = useState<string>('');
   const [receiptImage, setReceiptImage] = useState<string | null>(null);
   const [screenshotHash, setScreenshotHash] = useState<string>('');
@@ -500,6 +508,7 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
   const [successMessage, setSuccessMessage] = useState<string>('');
   const [claimsList, setClaimsList] = useState<RechargeClaim[]>([]);
   const [selectedPreviewImage, setSelectedPreviewImage] = useState<string | null>(null);
+  const [receiptZoomLevel, setReceiptZoomLevel] = useState<number>(1);
 
   // Submitted Claim for 24-hour processing notice & instant WhatsApp SMS
   const [submittedClaim, setSubmittedClaim] = useState<RechargeClaim | null>(null);
@@ -579,6 +588,28 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
 
   const activeUserId = authUser?.id || userProfile?.userId || 'USR-GUEST';
   const activeUserName = authUser?.name || userProfile?.name || 'TikTop User';
+
+  // Prefill default payer information
+  useEffect(() => {
+    if (isOpen) {
+      if (!payerName) {
+        setPayerName(activeUserName !== 'TikTop User' ? activeUserName : '');
+      }
+      if (!payerAddress) {
+        setPayerAddress((userProfile as any)?.location || 'काठमाडौँ, नेपाल (Kathmandu, Nepal)');
+      }
+      if (!senderBankOrWallet) {
+        setSenderBankOrWallet(activeMethod?.name || 'eSewa');
+      }
+    }
+  }, [isOpen, activeUserName, userProfile, activeMethod?.name]);
+
+  // Sync sender bank/wallet name when method tab changes if not custom typed
+  useEffect(() => {
+    if (activeMethod?.name) {
+      setSenderBankOrWallet(activeMethod.name);
+    }
+  }, [selectedMethodId]);
 
   // Load claims history
   useEffect(() => {
@@ -775,6 +806,21 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
       return;
     }
 
+    if (!payerName.trim() || payerName.trim().length < 2) {
+      setErrorMessage('⚠️ कृपया भुक्तानी गर्नेको पूरा नाम (Payer Full Name) प्रविष्ट गर्नुहोस्।');
+      return;
+    }
+
+    if (!payerAddress.trim() || payerAddress.trim().length < 2) {
+      setErrorMessage('⚠️ कृपया आफ्नो ठेगाना (Address / City & Country) प्रविष्ट गर्नुहोस्।');
+      return;
+    }
+
+    if (!senderBankOrWallet.trim() || senderBankOrWallet.trim().length < 2) {
+      setErrorMessage('⚠️ कृपया कुन बैंक वा वालेटबाट भुक्तानी गर्नुभएको हो सो खुलाउनुहोस् (उदा: eSewa, Khalti, Nabil Bank आदि)।');
+      return;
+    }
+
     if (!senderAccount.trim() || senderAccount.trim().length < 4) {
       setErrorMessage(`⚠️ कृपया तपाईंले भुक्तानी गर्नुभएको ${activeMethod.accountTypeLabel} प्रविष्ट गर्नुहोस्।`);
       return;
@@ -818,6 +864,9 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
               id: claimId,
               userId: activeUserId,
               userName: activeUserName,
+              payerName: payerName.trim(),
+              payerAddress: payerAddress.trim(),
+              senderBankOrWallet: senderBankOrWallet.trim(),
               countryCode: activeCountry.code,
               countryName: activeCountry.name,
               methodId: activeMethod.id,
@@ -932,6 +981,9 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
               id: claimId,
               userId: activeUserId,
               userName: activeUserName,
+              payerName: cardHolder.trim() || activeUserName,
+              payerAddress: payerAddress.trim() || 'International Card Payment',
+              senderBankOrWallet: `${cardBrand} Debit/Credit Card`,
               countryCode: activeCountry.code,
               countryName: activeCountry.name,
               methodId: 'card_intl',
@@ -1250,31 +1302,73 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
                 </div>
 
                 <div className="flex justify-between">
-                  <span className="text-neutral-400 font-sans">माग्नुभएको सिक्का:</span>
+                  <span className="text-neutral-400 font-sans">👤 भुक्तानी गर्नेको नाम:</span>
+                  <span className="font-sans font-bold text-white">{submittedClaim.payerName || submittedClaim.userName}</span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-neutral-400 font-sans">🏠 ठेगाना:</span>
+                  <span className="font-sans text-neutral-300 text-right truncate max-w-[200px]">{submittedClaim.payerAddress || 'नेपाल'}</span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-neutral-400 font-sans">🪙 माग्नुभएको सिक्का:</span>
                   <span className="font-bold text-amber-300">+{submittedClaim.coins.toLocaleString()} Coins</span>
                 </div>
 
                 <div className="flex justify-between">
-                  <span className="text-neutral-400 font-sans">भुक्तानी रकम:</span>
-                  <span className="font-bold text-white">
-                    {submittedClaim.currencySymbol} {submittedClaim.localAmount.toLocaleString()} (${submittedClaim.usdAmount.toFixed(2)} USD)
+                  <span className="text-neutral-400 font-sans">💵 भुक्तानी रकम (USD):</span>
+                  <span className="font-bold text-emerald-400 font-mono">
+                    ${submittedClaim.usdAmount.toFixed(2)} USD ({submittedClaim.currencySymbol} {submittedClaim.localAmount.toLocaleString()})
                   </span>
                 </div>
 
                 <div className="flex justify-between">
-                  <span className="text-neutral-400 font-sans">भुक्तानी माध्यम:</span>
-                  <span className="font-sans font-bold text-white">{submittedClaim.methodName}</span>
+                  <span className="text-neutral-400 font-sans">🏦 कुन बैंक/वालेटबाट:</span>
+                  <span className="font-sans font-bold text-amber-200">{submittedClaim.senderBankOrWallet || submittedClaim.methodName}</span>
                 </div>
 
                 <div className="flex justify-between">
-                  <span className="text-neutral-400 font-sans">पठाउने खाता/नम्बर:</span>
+                  <span className="text-neutral-400 font-sans">📱 पठाउने खाता/नम्बर:</span>
                   <span className="text-white">{submittedClaim.senderAccount}</span>
                 </div>
 
                 <div className="flex justify-between">
-                  <span className="text-neutral-400 font-sans">गन्तव्य खाता:</span>
+                  <span className="text-neutral-400 font-sans">🏢 गन्तव्य खाता:</span>
                   <span className="text-white">{submittedClaim.targetAccount}</span>
                 </div>
+
+                {/* Clear Receipt Screenshot Preview Box */}
+                {submittedClaim.receiptImage && (
+                  <div className="pt-2 border-t border-white/10">
+                    <span className="text-neutral-400 font-sans text-[11px] block mb-1.5 font-bold flex items-center gap-1.5">
+                      <ImageIcon size={13} className="text-amber-400" />
+                      भुक्तानी रसिदको स्क्रिनसट (Payment Receipt Screenshot):
+                    </span>
+                    <div className="flex items-center gap-3 bg-black/50 p-2.5 rounded-xl border border-white/10">
+                      <img
+                        src={submittedClaim.receiptImage}
+                        alt="Receipt"
+                        className="w-16 h-16 object-cover rounded-lg border border-amber-400/50 shadow cursor-pointer hover:opacity-90"
+                        onClick={() => setSelectedPreviewImage(submittedClaim.receiptImage!)}
+                      />
+                      <div className="space-y-1">
+                        <span className="text-emerald-400 font-sans text-xs font-bold block flex items-center gap-1">
+                          <CheckCircle2 size={12} />
+                          रसिद सफलतापूर्वक अपलोड भएको छ
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPreviewImage(submittedClaim.receiptImage!)}
+                          className="px-2.5 py-1 rounded-lg bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 font-sans text-[11px] font-bold flex items-center gap-1 border border-amber-400/40 cursor-pointer"
+                        >
+                          <Eye size={12} />
+                          <span>रसिद ठूलो बनाएर प्रस्ट हेर्नुहोस्</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex justify-between pt-1.5 border-t border-white/10">
                   <span className="text-neutral-400 font-sans">हालको स्थिति:</span>
@@ -2034,20 +2128,115 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
                 </div>
               )}
 
-              {/* STEP 5: MANDATORY SCREENSHOT / VOUCHER UPLOAD (Rendered for non-card or receipt-upload mode) */}
+              {/* STEP 5: MANDATORY PAYER DETAILS & SCREENSHOT UPLOAD */}
               {!(selectedMethodId === 'card_intl' && cardPaymentMode === 'card_form') && (
-                <div className="p-4 bg-neutral-950 border border-white/15 rounded-3xl space-y-3.5">
+                <div className="p-4 bg-neutral-950 border border-white/15 rounded-3xl space-y-4">
                   <div className="flex items-center justify-between border-b border-white/10 pb-2">
                     <span className="text-xs font-black text-neutral-200 block">
-                      ५. भुक्तानी रसिद वा भौचरको स्क्रिनसट (Screenshot) अपलोड गर्नुहोस्:
+                      ५. भुक्तानीकर्ताको विवरण र रसिदको स्क्रिनसट (Payment Details & Receipt):
                     </span>
-                    <span className="text-[10px] text-amber-400 font-bold">अनिवार्य</span>
+                    <span className="text-[10px] text-amber-400 font-bold">अनिवार्य (All Fields Required)</span>
                   </div>
 
-                  {/* Sender Account */}
+                  {/* Summary Box: Requested Coins & USD Payment Amount */}
+                  <div className="p-3 bg-gradient-to-r from-amber-500/15 via-yellow-500/10 to-amber-500/5 rounded-2xl border border-amber-500/30 grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
+                    <div>
+                      <span className="text-[10px] text-neutral-400 block font-sans">🪙 मागेको सिक्का (Coins):</span>
+                      <span className="text-amber-300 font-bold font-mono text-sm">+{totalCoins.toLocaleString()} Coins</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-neutral-400 block font-sans">💵 भुक्तानी रकम (USD):</span>
+                      <span className="text-emerald-400 font-bold font-mono text-sm">${calculatedUsd.toFixed(2)} USD</span>
+                    </div>
+                    <div className="col-span-2 sm:col-span-1">
+                      <span className="text-[10px] text-neutral-400 block font-sans">🇳🇵 स्थानीय रकम (Local NPR):</span>
+                      <span className="text-white font-bold font-mono text-xs">{activeCountry.currencySymbol} {localAmount}</span>
+                    </div>
+                  </div>
+
+                  {/* 1. Payer Name Input */}
                   <div>
                     <label className="text-[11px] text-neutral-300 font-bold block mb-1">
-                      {activeMethod.accountTypeLabel}: <span className="text-rose-400">*</span>
+                      १. भुक्तानी गर्नेको पूरा नाम (Payer Name / खातावालाको नाम): <span className="text-rose-400">*</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={payerName}
+                        onChange={(e) => setPayerName(e.target.value)}
+                        placeholder="उदा: रोशन अधिकारी / खातावालाको नाम"
+                        className="w-full bg-neutral-900 border border-white/15 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-amber-400"
+                      />
+                      <User size={14} className="absolute left-3 top-2.5 text-neutral-400" />
+                    </div>
+                    <span className="text-[10px] text-neutral-500 block mt-0.5">
+                      (बैंक वा वालेटको खातामा भएको वास्तविक नाम प्रविष्ट गर्नुहोस्)
+                    </span>
+                  </div>
+
+                  {/* 2. Payer Address Input */}
+                  <div>
+                    <label className="text-[11px] text-neutral-300 font-bold block mb-1">
+                      २. ठेगाना (Payer Address / City & Country): <span className="text-rose-400">*</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={payerAddress}
+                        onChange={(e) => setPayerAddress(e.target.value)}
+                        placeholder="उदा: काठमाडौँ, बागमती, नेपाल (Kathmandu, Nepal)"
+                        className="w-full bg-neutral-900 border border-white/15 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-amber-400"
+                      />
+                      <MapPin size={14} className="absolute left-3 top-2.5 text-neutral-400" />
+                    </div>
+                    <span className="text-[10px] text-neutral-500 block mt-0.5">
+                      (आफ्नो सहर, जिल्ला, वा हालको बसोबास स्थान)
+                    </span>
+                  </div>
+
+                  {/* 3. Sender Bank or Wallet */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] text-neutral-300 font-bold block">
+                        ३. कुन बैंक वा वालेटबाट भुक्तानी गर्नुभएको हो? (Bank / Wallet): <span className="text-rose-400">*</span>
+                      </label>
+                      <span className="text-[10px] text-amber-400 font-medium">द्रुत छनोट</span>
+                    </div>
+
+                    {/* Quick suggestion chips */}
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {['eSewa', 'Khalti', 'IME Pay', 'Nabil Bank', 'Global IME', 'NIC Asia', 'Prabhu Bank', 'PhonePe', 'PayPal', 'अन्य (Other)'].map((b) => (
+                        <button
+                          key={b}
+                          type="button"
+                          onClick={() => setSenderBankOrWallet(b)}
+                          className={`text-[10px] px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+                            senderBankOrWallet.toLowerCase() === b.toLowerCase()
+                              ? 'bg-amber-400 text-neutral-950 border-amber-400 font-black'
+                              : 'bg-white/5 border-white/10 text-neutral-300 hover:bg-white/10'
+                          }`}
+                        >
+                          {b}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={senderBankOrWallet}
+                        onChange={(e) => setSenderBankOrWallet(e.target.value)}
+                        placeholder="उदा: eSewa, Khalti, Nabil Bank Ltd, NIC Asia, आदि"
+                        className="w-full bg-neutral-900 border border-white/15 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-amber-400 font-mono"
+                      />
+                      <Landmark size={14} className="absolute left-3 top-2.5 text-neutral-400" />
+                    </div>
+                  </div>
+
+                  {/* 4. Sender Account / Mobile Number */}
+                  <div>
+                    <label className="text-[11px] text-neutral-300 font-bold block mb-1">
+                      ४. {activeMethod.accountTypeLabel}: <span className="text-rose-400">*</span>
                     </label>
                     <input
                       type="text"
@@ -2058,11 +2247,18 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
                     />
                   </div>
 
-                  {/* Screenshot Upload with Instant Duplicate Detection */}
+                  {/* 5. Screenshot Upload with Clear View Notice */}
                   <div>
-                    <label className="text-[11px] text-neutral-300 font-bold block mb-1">
-                      {selectedMethodId === 'nabil_direct' ? 'नबिल बैंक / रेमिट्यान्स भौचरको रसिद:' : `${activeMethod.name} भुक्तानीको स्क्रिनसट (Screenshot):`} <span className="text-rose-400">*</span>
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] text-neutral-300 font-bold block">
+                        ५. भुक्तानी गरेपछि प्राप्त रसिदको स्क्रिनसट (Receipt Screenshot): <span className="text-rose-400">*</span>
+                      </label>
+                      <span className="text-[10px] text-amber-300 font-semibold">प्रस्ट देखिनुपर्ने</span>
+                    </div>
+
+                    <div className="text-[10px] text-neutral-400 bg-black/40 p-2 rounded-xl border border-white/5 mb-2 leading-relaxed">
+                      💡 <strong>ध्यान दिनुहोस्:</strong> भुक्तानी रसिदमा <strong>कारोबार रकम, मिति, र कारोबार नम्बर (Txn / Ref ID)</strong> प्रस्ट देखिनुपर्छ।
+                    </div>
 
                     <input
                       type="file"
@@ -2073,28 +2269,44 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
                     />
 
                     {receiptImage ? (
-                      <div className="p-3 bg-neutral-900 border border-emerald-500/40 rounded-2xl space-y-2">
+                      <div className="p-3 bg-neutral-900 border border-emerald-500/40 rounded-2xl space-y-2.5">
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2.5">
-                            <img
-                              src={receiptImage}
-                              alt="Receipt"
-                              className="w-14 h-14 object-cover rounded-xl border border-white/20 shadow"
-                            />
+                          <div className="flex items-center gap-3">
+                            <div
+                              onClick={() => {
+                                setReceiptZoomLevel(1);
+                                setSelectedPreviewImage(receiptImage);
+                              }}
+                              className="relative group cursor-pointer"
+                            >
+                              <img
+                                src={receiptImage}
+                                alt="Receipt"
+                                className="w-16 h-16 object-cover rounded-xl border-2 border-emerald-400/60 shadow group-hover:scale-105 transition-transform"
+                              />
+                              <div className="absolute inset-0 bg-black/40 rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                <ZoomIn size={16} className="text-white" />
+                              </div>
+                            </div>
+
                             <div>
                               <span className="text-xs font-bold text-emerald-400 block flex items-center gap-1">
                                 <CheckCircle2 size={13} />
-                                स्क्रिनसट संलग्न गरियो
+                                रसिद सफलतापूर्वक लोड भयो
                               </span>
                               <span className="text-[9px] text-neutral-400 font-mono block truncate max-w-[180px]">
-                                हस्ताक्षर: {screenshotHash.slice(0, 16)}...
+                                डिजिटल हस्ताक्षर: {screenshotHash.slice(0, 16)}...
                               </span>
                               <button
                                 type="button"
-                                onClick={() => setSelectedPreviewImage(receiptImage)}
-                                className="text-[10px] text-amber-400 underline hover:text-amber-300"
+                                onClick={() => {
+                                  setReceiptZoomLevel(1);
+                                  setSelectedPreviewImage(receiptImage);
+                                }}
+                                className="text-[11px] text-amber-300 hover:text-amber-200 font-bold underline flex items-center gap-1 mt-0.5 cursor-pointer"
                               >
-                                रसिद ठूलो बनाएर हेर्नुहोस्
+                                <Eye size={12} />
+                                <span>रसिद ठूलो बनाएर प्रस्ट हेर्नुहोस्</span>
                               </button>
                             </div>
                           </div>
@@ -2106,7 +2318,7 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
                               setScreenshotHash('');
                               setIsDuplicateScreenshot(false);
                             }}
-                            className="p-1.5 rounded-lg bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 text-xs font-bold"
+                            className="p-2 rounded-xl bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 text-xs font-bold transition-all cursor-pointer"
                           >
                             अर्को छनोट
                           </button>
@@ -2123,12 +2335,14 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
-                        className="w-full py-4 px-4 rounded-2xl border-2 border-dashed border-white/20 hover:border-amber-400/60 bg-white/5 text-neutral-300 hover:text-white text-xs font-bold flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer"
+                        className="w-full py-5 px-4 rounded-2xl border-2 border-dashed border-amber-400/40 hover:border-amber-400 bg-amber-400/5 hover:bg-amber-400/10 text-neutral-200 text-xs font-bold flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer"
                       >
-                        <Upload size={22} className="text-amber-400" />
-                        <span>रसिद वा भौचरको स्क्रिनसट अपलोड गर्नुहोस्</span>
+                        <div className="w-10 h-10 rounded-full bg-amber-400/20 flex items-center justify-center text-amber-400">
+                          <Upload size={20} />
+                        </div>
+                        <span className="text-amber-300 font-black">भुक्तानी रसिदको स्क्रिनसट अपलोड गर्नुहोस्</span>
                         <span className="text-[10px] text-neutral-400 font-normal">
-                          (ग्यालरी वा फोटोबाट स्क्रिनसट छनोट गर्नुहोस्)
+                          (ग्यालरी वा क्यामराबाट रसिदको फोटो छनोट गर्नुहोस्)
                         </span>
                       </button>
                     )}
@@ -2257,33 +2471,75 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
                           </span>
                         </div>
 
-                        <div className="text-[11px] text-neutral-300 space-y-0.5 font-mono">
-                          <div>
-                            <span className="text-neutral-500">माध्यम:</span> {claim.methodName} → {claim.targetAccount}
+                        <div className="text-[11px] text-neutral-300 space-y-1 font-mono bg-black/40 p-2.5 rounded-xl border border-white/5">
+                          <div className="flex justify-between items-center">
+                            <span className="text-neutral-500 font-sans">भुक्तानी गर्ने:</span>
+                            <span className="text-white font-bold font-sans">{claim.payerName || claim.userName}</span>
                           </div>
-                          <div>
-                            <span className="text-neutral-500">पठाएको मिति:</span> {claim.paymentDate}
+                          {claim.payerAddress && (
+                            <div className="flex justify-between items-center">
+                              <span className="text-neutral-500 font-sans">ठेगाना:</span>
+                              <span className="text-neutral-300 font-sans truncate max-w-[180px]">{claim.payerAddress}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between items-center">
+                            <span className="text-neutral-500 font-sans">कुन बैंक/वालेट:</span>
+                            <span className="text-amber-200 font-bold">{claim.senderBankOrWallet || claim.methodName}</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-neutral-500 font-sans">पठाउने खाता:</span>
+                            <span className="text-neutral-300">{claim.senderAccount || 'उल्लेख छैन'}</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-neutral-500 font-sans">गन्तव्य खाता:</span>
+                            <span className="text-neutral-400 truncate max-w-[180px]">{claim.targetAccount}</span>
+                          </div>
+                          <div className="flex justify-between items-center pt-1 border-t border-white/5">
+                            <span className="text-neutral-500 font-sans">मिति / Ref:</span>
+                            <span className="text-neutral-400">{claim.paymentDate} • {claim.id}</span>
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between pt-1 gap-2 flex-wrap">
-                          {claim.receiptImage ? (
+                        {/* Screenshot thumbnail card */}
+                        {claim.receiptImage && (
+                          <div className="flex items-center justify-between gap-2 p-2 bg-neutral-900 rounded-xl border border-white/10">
+                            <div className="flex items-center gap-2">
+                              <img
+                                src={claim.receiptImage}
+                                alt="Receipt"
+                                className="w-10 h-10 object-cover rounded-lg border border-amber-400/40 shadow cursor-pointer"
+                                onClick={() => {
+                                  setReceiptZoomLevel(1);
+                                  setSelectedPreviewImage(claim.receiptImage!);
+                                }}
+                              />
+                              <span className="text-[10px] text-neutral-300 font-bold font-sans">
+                                भुक्तानी रसिद स्क्रिनसट
+                              </span>
+                            </div>
                             <button
                               type="button"
-                              onClick={() => setSelectedPreviewImage(claim.receiptImage)}
-                              className="text-[10px] text-amber-400 hover:text-amber-300 underline flex items-center gap-1 cursor-pointer"
+                              onClick={() => {
+                                setReceiptZoomLevel(1);
+                                setSelectedPreviewImage(claim.receiptImage!);
+                              }}
+                              className="text-[10px] text-amber-400 hover:text-amber-300 font-bold underline flex items-center gap-1 cursor-pointer"
                             >
                               <Eye size={12} />
-                              <span>अपलोड गरिएको रसिद हेर्नुहोस्</span>
+                              <span>प्रस्ट हेर्नुहोस्</span>
                             </button>
-                          ) : <div />}
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-between pt-1 gap-2 flex-wrap">
+                          {!claim.receiptImage && <div />}
 
                           {claim.status === 'pending' && (
                             <a
                               href={buildRechargeWhatsAppUrl(claim, adminPhone)}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-[10px] text-emerald-300 hover:text-emerald-200 font-bold flex items-center gap-1 bg-emerald-500/20 px-2.5 py-1 rounded-lg border border-emerald-500/40 transition-all"
+                              className="text-[10px] text-emerald-300 hover:text-emerald-200 font-bold flex items-center gap-1 bg-emerald-500/20 px-2.5 py-1 rounded-lg border border-emerald-500/40 transition-all ml-auto"
                             >
                               <MessageCircle size={12} />
                               <span>एडमिनलाई WhatsApp मा SMS पठाउनुहोस्</span>
@@ -2662,32 +2918,106 @@ export const RechargeCoinsModal: React.FC<RechargeCoinsModalProps> = ({
           )}
         </div>
 
-        {/* Modal for full size receipt view */}
+        {/* Modal for full size receipt view with Crystal Clear Zoom Controls */}
         {selectedPreviewImage && (
           <div
-            className="fixed inset-0 z-60 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in"
-            onClick={() => setSelectedPreviewImage(null)}
+            className="fixed inset-0 z-[120] bg-black/95 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-fade-in"
+            onClick={() => {
+              setSelectedPreviewImage(null);
+              setReceiptZoomLevel(1);
+            }}
           >
             <div
-              className="max-w-md w-full bg-neutral-900 border border-white/20 rounded-3xl p-4 relative"
+              className="max-w-2xl w-full bg-neutral-900 border border-white/20 rounded-3xl p-4 sm:p-5 relative shadow-2xl flex flex-col max-h-[90vh]"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between pb-3 border-b border-white/10">
-                <span className="text-xs font-bold text-white">भुक्तानी भौचर / रसिदको स्क्रिनसट</span>
-                <button
-                  type="button"
-                  onClick={() => setSelectedPreviewImage(null)}
-                  className="p-1 rounded-full bg-white/10 hover:bg-white/20 text-white"
-                >
-                  <X size={16} />
-                </button>
+              {/* Header */}
+              <div className="flex items-center justify-between pb-3 border-b border-white/10 shrink-0">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-amber-400/20 text-amber-300 flex items-center justify-center">
+                    <ImageIcon size={18} />
+                  </div>
+                  <div>
+                    <h3 className="text-xs sm:text-sm font-bold text-white">
+                      भुक्तानी भौचर / रसिदको स्क्रिनसट (Receipt Preview)
+                    </h3>
+                    <span className="text-[10px] text-amber-400 font-mono">
+                      Zoom: {Math.round(receiptZoomLevel * 100)}% • प्रस्ट हेर्न जुम कन्ट्रोल प्रयोग गर्नुहोस्
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  {/* Zoom Controls */}
+                  <div className="flex items-center bg-black/60 rounded-xl border border-white/10 p-0.5">
+                    <button
+                      type="button"
+                      title="Zoom In"
+                      onClick={() => setReceiptZoomLevel((prev) => Math.min(prev + 0.25, 2.5))}
+                      className="p-1.5 rounded-lg hover:bg-white/10 text-neutral-300 hover:text-white cursor-pointer"
+                    >
+                      <ZoomIn size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      title="Zoom Out"
+                      onClick={() => setReceiptZoomLevel((prev) => Math.max(prev - 0.25, 0.75))}
+                      className="p-1.5 rounded-lg hover:bg-white/10 text-neutral-300 hover:text-white cursor-pointer"
+                    >
+                      <ZoomOut size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      title="Reset Zoom"
+                      onClick={() => setReceiptZoomLevel(1)}
+                      className="px-2 py-1 text-[10px] rounded-lg hover:bg-white/10 text-amber-300 font-bold cursor-pointer"
+                    >
+                      100%
+                    </button>
+                  </div>
+
+                  <a
+                    href={selectedPreviewImage}
+                    download="payment-receipt-screenshot.jpg"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Download / Open Original"
+                    className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white cursor-pointer"
+                  >
+                    <Download size={15} />
+                  </a>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedPreviewImage(null);
+                      setReceiptZoomLevel(1);
+                    }}
+                    className="p-2 rounded-xl bg-white/10 hover:bg-rose-500/20 text-neutral-400 hover:text-rose-300 cursor-pointer transition-colors"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
               </div>
-              <div className="py-3 flex justify-center max-h-[70vh] overflow-auto">
-                <img
-                  src={selectedPreviewImage}
-                  alt="Receipt Preview"
-                  className="max-w-full rounded-xl object-contain shadow-2xl"
-                />
+
+              {/* Notice Banner */}
+              <div className="bg-amber-400/10 border border-amber-400/20 px-3 py-1.5 rounded-xl my-2.5 text-[10px] text-amber-200 flex items-center justify-between shrink-0">
+                <span>🔍 रसिदमा कारोबार रकम, मिति र सेन्डर खाता प्रस्ट रुजु गर्न सकिन्छ।</span>
+                <span className="font-mono text-neutral-400 hidden sm:inline">Scroll to Pan</span>
+              </div>
+
+              {/* Scrollable & Zoomable Receipt Canvas */}
+              <div className="flex-1 overflow-auto p-2 bg-black/80 rounded-2xl border border-white/10 flex items-center justify-center min-h-[300px]">
+                <div
+                  className="transition-transform duration-200 ease-out origin-center"
+                  style={{ transform: `scale(${receiptZoomLevel})` }}
+                >
+                  <img
+                    src={selectedPreviewImage}
+                    alt="Receipt Full Preview"
+                    className="max-h-[60vh] max-w-full rounded-xl object-contain shadow-2xl border border-white/20"
+                  />
+                </div>
               </div>
             </div>
           </div>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Radio, Search, Bell, Coins, Award } from 'lucide-react';
+import { Radio, Search, Bell } from 'lucide-react';
 import { Screen } from '../types';
 
 interface NavbarProps {
@@ -7,24 +7,16 @@ interface NavbarProps {
   userCoins?: number;
   userDiamonds?: number;
   userPoints?: number;
-  onOpenRecharge: () => void;
+  onOpenRecharge?: () => void;
   onOpenWithdrawPoints?: () => void;
   onOpenSearch?: () => void;
   onOpenNotifications?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
-  userCoins,
-  userDiamonds,
-  userPoints = 0,
-  onOpenRecharge,
-  onOpenWithdrawPoints,
   onOpenSearch,
   onOpenNotifications,
 }) => {
-  const displayCoins = userCoins !== undefined ? userCoins : (userDiamonds ?? 0);
-  const displayPoints = userPoints;
-
   return (
     <header
       id="app-top-navbar"
@@ -46,32 +38,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </div>
 
-      {/* Right Action Pill: Coins (सिक्का) + Points (अंक) + Search + Notifications */}
+      {/* Right Action Icons: Search + Notifications */}
       <div className="flex items-center gap-1.5 sm:gap-2">
-        {/* Coins Counter & Recharge Button */}
-        <button
-          type="button"
-          id="btn-navbar-coins"
-          onClick={onOpenRecharge}
-          className="flex items-center gap-1 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/35 px-2 sm:px-2.5 py-1 rounded-full text-[11px] sm:text-xs font-bold text-amber-300 transition-all active:scale-95 shadow-sm"
-          title="Coins (सिक्का) रिचार्ज गर्न ट्याप गर्नुहोस्"
-        >
-          <Coins size={13} className="text-amber-400" />
-          <span>{displayCoins.toLocaleString()}</span>
-        </button>
-
-        {/* Points Option right next to Coins (xeuma points vanne option rakhnu) */}
-        <button
-          type="button"
-          id="btn-navbar-points"
-          onClick={onOpenWithdrawPoints}
-          className="flex items-center gap-1 bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/35 px-2 sm:px-2.5 py-1 rounded-full text-[11px] sm:text-xs font-bold text-rose-300 transition-all active:scale-95 shadow-sm"
-          title="Points (अंक) निकासी गर्न ट्याप गर्नुहोस्"
-        >
-          <Award size={13} className="text-rose-400" />
-          <span>{displayPoints.toLocaleString()} Pts</span>
-        </button>
-
         <button
           type="button"
           id="btn-navbar-search"

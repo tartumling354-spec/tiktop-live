@@ -205,18 +205,20 @@ export function buildRechargeWhatsAppUrl(claim: RechargeClaim, customPhone?: str
   const lines = [
     `🔔 *नयाँ TIKTOP सिक्का रिचार्ज अनुरोध (New Recharge Request)*`,
     `━━━━━━━━━━━━━━━━━━━━━━━━━`,
-    `👤 *प्रयोगकर्ता (User):* ${claim.userName}`,
+    `👤 *भुक्तानी गर्नेको नाम (Payer Name):* ${claim.payerName || claim.userName}`,
+    `🏠 *ठेगाना (Address):* ${claim.payerAddress || 'नेपाल (Nepal)'}`,
     `🆔 *TikTop ID:* ${claim.userId}`,
-    `🪙 *रिचार्ज सिक्का:* +${claim.coins.toLocaleString()} Coins`,
-    `💵 *जम्मा रकम:* ${claim.currencySymbol} ${claim.localAmount.toLocaleString()} ($${claim.usdAmount.toFixed(2)} USD)`,
-    `💳 *भुक्तानी माध्यम:* ${claim.methodName}`,
-    `📱 *पठाउनेको खाता/नम्बर:* ${claim.senderAccount || 'उल्लेख छैन'}`,
-    `🏢 *गन्तव्य खाता:* ${claim.targetAccount}`,
+    `🪙 *मागेको सिक्का (Requested Coins):* +${claim.coins.toLocaleString()} Coins`,
+    `💵 *भुक्तानी रकम डलरमा (USD):* $${claim.usdAmount.toFixed(2)} USD (${claim.currencySymbol} ${claim.localAmount.toLocaleString()})`,
+    `🏦 *कुन बैंक वा वालेटबाट (Bank/Wallet):* ${claim.senderBankOrWallet || claim.methodName}`,
+    `📱 *पठाउनेको खाता / नम्बर:* ${claim.senderAccount || 'उल्लेख छैन'}`,
+    `🏢 *गन्तव्य खाता (Merchant Target):* ${claim.targetAccount}`,
+    `🧾 *भुक्तानी रसिद स्क्रिनसट:* ${claim.receiptImage ? 'संलग्न गरिएको छ (Attached)' : 'अपलोड बाँकी'}`,
     `🔖 *अर्डर Ref ID:* ${claim.id}`,
     `📅 *मिति:* ${claim.paymentDate || new Date().toISOString().split('T')[0]}`,
-    `⏳ *स्थिति:* विचाराधीन (Pending Your Approval)`,
+    `⏳ *स्थिति:* विचाराधीन (Pending Admin Approval)`,
     `━━━━━━━━━━━━━━━━━━━━━━━━━`,
-    `👉 *एडमिन निर्देशन:* कृपया भुक्तानी रसिद जाँच गरी TikTop Admin Panel मा Approve गरेपछि मात्र प्रयोगकर्ताको खातामा सिक्का जम्मा हुनेछ।`,
+    `👉 *एडमिन निर्देशन:* कृपया भुक्तानी रसिद र विवरण जाँच गरी TikTop Admin Panel मा Approve गरेपछि मात्र प्रयोगकर्ताको खातामा सिक्का जम्मा हुनेछ।`,
   ];
 
   const fullText = lines.join('\n');

@@ -329,12 +329,17 @@ export function ensureInitialRechargeClaims(): RechargeClaim[] {
   const existing = getAllRechargeClaims();
   if (existing.length > 0) return existing;
 
+  const sampleReceiptSvg1 = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="600" height="850" viewBox="0 0 600 850" fill="%230f172a"><rect width="600" height="850" rx="24" fill="%230f172a"/><rect x="20" y="20" width="560" height="810" rx="20" fill="%231e293b" stroke="%2338bdf8" stroke-width="2"/><circle cx="300" cy="90" r="40" fill="%2322c55e" opacity="0.2"/><path d="M285 90 L295 100 L318 78" stroke="%2322c55e" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><text x="300" y="160" fill="%23ffffff" font-size="22" font-weight="bold" text-anchor="middle" font-family="sans-serif">eSewa Payment Successful</text><text x="300" y="190" fill="%2394a3b8" font-size="14" text-anchor="middle" font-family="sans-serif">भुक्तानी सम्पन्न भयो</text><rect x="50" y="220" width="500" height="80" rx="16" fill="%230f172a" stroke="%23334155"/><text x="75" y="255" fill="%2394a3b8" font-size="13" font-family="sans-serif">जम्मा भुक्तानी रकम (Amount):</text><text x="75" y="285" fill="%2338bdf8" font-size="26" font-weight="bold" font-family="monospace">रू. 6,500.00 ($50.00 USD)</text><line x1="50" y1="330" x2="550" y2="330" stroke="%23334155" stroke-dasharray="6 6"/><text x="75" y="370" fill="%2394a3b8" font-size="14" font-family="sans-serif">भुक्तानी गर्नेको नाम (Payer):</text><text x="525" y="370" fill="%23ffffff" font-size="15" font-weight="bold" text-anchor="end" font-family="sans-serif">Roshan Adhikari</text><text x="75" y="415" fill="%2394a3b8" font-size="14" font-family="sans-serif">ठेगाना (Address):</text><text x="525" y="415" fill="%23ffffff" font-size="15" font-weight="bold" text-anchor="end" font-family="sans-serif">काठमाडौँ - ३, बागमती, नेपाल</text><text x="75" y="460" fill="%2394a3b8" font-size="14" font-family="sans-serif">मागेको सिक्का (Coins):</text><text x="525" y="460" fill="%23fbbf24" font-size="18" font-weight="bold" text-anchor="end" font-family="monospace">+5,000 Coins</text><text x="75" y="505" fill="%2394a3b8" font-size="14" font-family="sans-serif">भुक्तानी स्रोत (Source Bank/Wallet):</text><text x="525" y="505" fill="%234ade80" font-size="15" font-weight="bold" text-anchor="end" font-family="sans-serif">eSewa Wallet (9841234567)</text><text x="75" y="550" fill="%2394a3b8" font-size="14" font-family="sans-serif">गन्तव्य खाता (Merchant Target):</text><text x="525" y="550" fill="%23ffffff" font-size="14" font-family="sans-serif" text-anchor="end">+977 9863991384 (Shambu Lamsal)</text><text x="75" y="595" fill="%2394a3b8" font-size="14" font-family="sans-serif">कारोबार कोड (Txn Ref ID):</text><text x="525" y="595" fill="%23cbd5e1" font-size="13" font-family="monospace" text-anchor="end">ESW-99382104-NP</text><text x="75" y="640" fill="%2394a3b8" font-size="14" font-family="sans-serif">भुक्तानी मिति (Payment Date):</text><text x="525" y="640" fill="%23cbd5e1" font-size="13" font-family="monospace" text-anchor="end">${new Date().toLocaleDateString()}</text><rect x="50" y="680" width="500" height="70" rx="14" fill="%2314532d" stroke="%2322c55e" stroke-width="1.5"/><text x="300" y="710" fill="%2386efac" font-size="13" font-weight="bold" text-anchor="middle" font-family="sans-serif">✓ आधिकारिक eSewa डिजिटल रसिद प्रमाण</text><text x="300" y="732" fill="%23bbf7d0" font-size="11" text-anchor="middle" font-family="sans-serif">Verified Digital Voucher Screenshot</text></svg>`;
+
   const seedClaims: RechargeClaim[] = [
     {
       id: 'RC-993821',
       userId: 'USR-84920',
       userName: 'Roshan Adhikari',
       userAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+      payerName: 'Roshan Adhikari',
+      payerAddress: 'काठमाडौँ - ३, बागमती, नेपाल (Kathmandu, Nepal)',
+      senderBankOrWallet: 'eSewa Official Wallet',
       countryCode: 'NP',
       countryName: 'Nepal (नेपाल)',
       methodId: 'esewa',
@@ -345,6 +350,7 @@ export function ensureInitialRechargeClaims(): RechargeClaim[] {
       currencySymbol: 'रू',
       coins: 5000,
       senderAccount: '9841234567 (Roshan)',
+      receiptImage: sampleReceiptSvg1,
       paymentDate: new Date().toISOString().split('T')[0],
       status: 'pending', // PENDING APPROVAL
       submittedAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
@@ -354,6 +360,9 @@ export function ensureInitialRechargeClaims(): RechargeClaim[] {
       userId: 'USR-61920',
       userName: 'Sunita Sharma',
       userAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80',
+      payerName: 'Sunita Sharma',
+      payerAddress: 'पोखरा - ८, सिर्जना चोक, गण्डकी (Pokhara, Nepal)',
+      senderBankOrWallet: 'Khalti Digital Wallet',
       countryCode: 'NP',
       countryName: 'Nepal (नेपाल)',
       methodId: 'khalti',
@@ -364,6 +373,7 @@ export function ensureInitialRechargeClaims(): RechargeClaim[] {
       currencySymbol: 'रू',
       coins: 1000,
       senderAccount: '9810443322 (Sunita)',
+      receiptImage: sampleReceiptSvg1,
       paymentDate: new Date().toISOString().split('T')[0],
       status: 'pending', // PENDING APPROVAL
       submittedAt: new Date(Date.now() - 75 * 60 * 1000).toISOString(),
@@ -373,6 +383,9 @@ export function ensureInitialRechargeClaims(): RechargeClaim[] {
       userId: 'USR-48192',
       userName: 'Bikram Thapa',
       userAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
+      payerName: 'Bikram Thapa',
+      payerAddress: 'बुटवल - ४, रुपन्देही, लुम्बिनी (Butwal, Nepal)',
+      senderBankOrWallet: 'Nabil Bank Mobile Banking',
       countryCode: 'NP',
       countryName: 'Nepal (नेपाल)',
       methodId: 'bank_np',
@@ -383,6 +396,7 @@ export function ensureInitialRechargeClaims(): RechargeClaim[] {
       currencySymbol: 'रू',
       coins: 10000,
       senderAccount: '041299881122',
+      receiptImage: sampleReceiptSvg1,
       paymentDate: new Date(Date.now() - 24 * 3600 * 1000).toISOString().split('T')[0],
       status: 'verified',
       submittedAt: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),

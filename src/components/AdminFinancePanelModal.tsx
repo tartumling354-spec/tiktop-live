@@ -31,6 +31,12 @@ import {
   MinusCircle,
   HelpCircle,
   Trash2,
+  ZoomIn,
+  ZoomOut,
+  Download,
+  MapPin,
+  Landmark,
+  ImageIcon,
 } from 'lucide-react';
 import { RechargeClaim, UserProfile, AuthUser } from '../types';
 import {
@@ -98,6 +104,7 @@ export const AdminFinancePanelModal: React.FC<AdminFinancePanelModalProps> = ({
 
   // Receipt Preview Modal
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [receiptZoomLevel, setReceiptZoomLevel] = useState<number>(1);
 
   // User Balance Adjust Modal
   const [adjustTargetUser, setAdjustTargetUser] = useState<UserBalanceRecord | null>(null);
@@ -828,21 +835,96 @@ export const AdminFinancePanelModal: React.FC<AdminFinancePanelModalProps> = ({
                           </div>
                         </div>
 
-                        {/* Details Grid */}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs bg-black/40 p-3 rounded-xl border border-white/5 font-mono">
+                        {/* Comprehensive Payer & Payment Details Grid */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs bg-black/50 p-3 rounded-2xl border border-white/10 font-mono">
                           <div>
-                            <span className="text-[10px] text-neutral-500 block">पठाउनेको खाता / नम्बर:</span>
-                            <span className="text-neutral-200 font-bold">{claim.senderAccount || 'उल्लेख छैन'}</span>
+                            <span className="text-[10px] text-neutral-400 block font-sans">👤 भुक्तानी गर्नेको नाम:</span>
+                            <span className="text-white font-bold font-sans text-xs">{claim.payerName || claim.userName}</span>
                           </div>
                           <div>
-                            <span className="text-[10px] text-neutral-500 block">गन्तव्य खाता:</span>
-                            <span className="text-neutral-300">{claim.targetAccount}</span>
+                            <span className="text-[10px] text-neutral-400 block font-sans">🏠 ठेगाना (Address):</span>
+                            <span className="text-neutral-300 font-sans text-xs truncate block">{claim.payerAddress || 'नेपाल'}</span>
                           </div>
                           <div>
-                            <span className="text-[10px] text-neutral-500 block">अर्डर Ref ID:</span>
-                            <span className="text-amber-300 font-bold">{claim.id}</span>
+                            <span className="text-[10px] text-neutral-400 block font-sans">🪙 मागेको सिक्का (Coins):</span>
+                            <span className="text-amber-300 font-bold text-xs">+{claim.coins.toLocaleString()} Coins</span>
+                          </div>
+
+                          <div>
+                            <span className="text-[10px] text-neutral-400 block font-sans">💵 भुक्तानी रकम (USD):</span>
+                            <span className="text-emerald-400 font-bold text-xs">${claim.usdAmount.toFixed(2)} USD ({claim.currencySymbol} {claim.localAmount.toLocaleString()})</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-neutral-400 block font-sans">🏦 कुन बैंक / वालेट:</span>
+                            <span className="text-amber-200 font-bold text-xs">{claim.senderBankOrWallet || claim.methodName}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-neutral-400 block font-sans">📱 पठाउने खाता / नम्बर:</span>
+                            <span className="text-neutral-200 font-bold text-xs">{claim.senderAccount || 'उल्लेख छैन'}</span>
+                          </div>
+
+                          <div>
+                            <span className="text-[10px] text-neutral-400 block font-sans">🏢 गन्तव्य खाता:</span>
+                            <span className="text-neutral-300 text-[11px] truncate block">{claim.targetAccount}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-neutral-400 block font-sans">📅 मिति र समय:</span>
+                            <span className="text-neutral-300 text-[11px] block">{claim.paymentDate} • {new Date(claim.submittedAt).toLocaleTimeString()}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-neutral-400 block font-sans">🆔 अर्डर Ref ID:</span>
+                            <span className="text-amber-300 font-bold text-[11px] block truncate">{claim.id}</span>
                           </div>
                         </div>
+
+                        {/* Prominent Payment Receipt Screenshot Box */}
+                        {claim.receiptImage ? (
+                          <div className="p-3 bg-neutral-900 border border-amber-400/30 rounded-2xl flex flex-wrap sm:flex-nowrap items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <div
+                                className="relative group cursor-pointer shrink-0"
+                                onClick={() => {
+                                  setReceiptZoomLevel(1);
+                                  setPreviewImage(claim.receiptImage!);
+                                }}
+                              >
+                                <img
+                                  src={claim.receiptImage}
+                                  alt="Receipt"
+                                  className="w-16 h-16 object-cover rounded-xl border border-white/20 shadow-md group-hover:scale-105 transition-transform"
+                                />
+                                <div className="absolute inset-0 bg-black/40 rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <ZoomIn size={16} className="text-white" />
+                                </div>
+                              </div>
+                              <div>
+                                <span className="text-xs font-bold text-amber-300 block flex items-center gap-1">
+                                  <ImageIcon size={13} className="text-amber-400" />
+                                  भुक्तानी रसिदको स्क्रिनसट (Payment Receipt)
+                                </span>
+                                <span className="text-[10px] text-neutral-400 block mt-0.5">
+                                  स्क्रिनसट अपलोड गरिएको छ। रुजु गर्न ठूलो बनाएर हेर्नुहोस्।
+                                </span>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setReceiptZoomLevel(1);
+                                setPreviewImage(claim.receiptImage!);
+                              }}
+                              className="py-1.5 px-3.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-neutral-950 text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer shadow shadow-amber-400/20 active:scale-95 shrink-0"
+                            >
+                              <Eye size={14} />
+                              <span>रसिद प्रस्ट हेर्नुहोस् (Zoom)</span>
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="p-2.5 bg-neutral-900/60 border border-dashed border-white/10 rounded-xl text-neutral-500 text-xs italic">
+                            ⚠️ प्रयोगकर्ताद्वारा कुनै रसिद स्क्रिनसट संलग्न गरिएको छैन
+                          </div>
+                        )}
 
                         {/* Rejection reason if any */}
                         {claim.rejectionReason && (
@@ -853,23 +935,7 @@ export const AdminFinancePanelModal: React.FC<AdminFinancePanelModalProps> = ({
 
                         {/* Actions & Screenshot */}
                         <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                          {/* Receipt Screenshot Button */}
-                          <div>
-                            {claim.receiptImage ? (
-                              <button
-                                type="button"
-                                onClick={() => setPreviewImage(claim.receiptImage!)}
-                                className="py-1.5 px-3 rounded-xl bg-white/10 hover:bg-white/20 text-neutral-200 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer border border-white/10"
-                              >
-                                <Eye size={14} className="text-amber-400" />
-                                <span>भुक्तानी रसिद हेर्नुहोस्</span>
-                              </button>
-                            ) : (
-                              <span className="text-[11px] text-neutral-500 italic">
-                                कुनै रसिद फाइल संलग्न छैन
-                              </span>
-                            )}
-                          </div>
+                          <div />
 
                           {/* Approval / Rejection / Delete Buttons */}
                           {claim.status === 'pending' ? (
@@ -1311,41 +1377,116 @@ export const AdminFinancePanelModal: React.FC<AdminFinancePanelModalProps> = ({
           </div>
         )}
 
-        {/* SUB-MODAL 1: FULL-SIZE PAYMENT SCREENSHOT RECEIPT VIEWER */}
+        {/* SUB-MODAL 1: FULL-SIZE PAYMENT SCREENSHOT RECEIPT VIEWER WITH ZOOM CONTROLS */}
         {previewImage && (
           <div
-            className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4"
-            onClick={() => setPreviewImage(null)}
+            className="fixed inset-0 z-[130] bg-black/95 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-in fade-in"
+            onClick={() => {
+              setPreviewImage(null);
+              setReceiptZoomLevel(1);
+            }}
           >
             <div
-              className="max-w-lg w-full bg-neutral-900 border border-white/20 rounded-3xl p-4 overflow-hidden shadow-2xl relative"
+              className="max-w-2xl w-full bg-neutral-900 border border-white/20 rounded-3xl p-4 sm:p-5 shadow-2xl relative flex flex-col max-h-[90vh]"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between pb-3 border-b border-white/10 mb-3">
-                <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                  <FileText size={15} className="text-amber-400" /> भुक्तानी रसिद / भौचर प्रमाण
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setPreviewImage(null)}
-                  className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-neutral-300 cursor-pointer"
+              {/* Header */}
+              <div className="flex items-center justify-between pb-3 border-b border-white/10 shrink-0">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-amber-400/20 text-amber-300 flex items-center justify-center">
+                    <ImageIcon size={18} />
+                  </div>
+                  <div>
+                    <h4 className="text-xs sm:text-sm font-bold text-white flex items-center gap-1.5">
+                      भुक्तानी रसिद / भौचर प्रमाण (Payment Receipt Screenshot)
+                    </h4>
+                    <span className="text-[10px] text-amber-400 font-mono">
+                      Zoom: {Math.round(receiptZoomLevel * 100)}% • रसिदको मिति, रकम र ट्रान्ज्याक्सन कोड रुजु गर्नुहोस्
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  {/* Zoom Controls */}
+                  <div className="flex items-center bg-black/60 rounded-xl border border-white/10 p-0.5">
+                    <button
+                      type="button"
+                      title="Zoom In"
+                      onClick={() => setReceiptZoomLevel((prev) => Math.min(prev + 0.25, 2.5))}
+                      className="p-1.5 rounded-lg hover:bg-white/10 text-neutral-300 hover:text-white cursor-pointer"
+                    >
+                      <ZoomIn size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      title="Zoom Out"
+                      onClick={() => setReceiptZoomLevel((prev) => Math.max(prev - 0.25, 0.75))}
+                      className="p-1.5 rounded-lg hover:bg-white/10 text-neutral-300 hover:text-white cursor-pointer"
+                    >
+                      <ZoomOut size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      title="Reset Zoom"
+                      onClick={() => setReceiptZoomLevel(1)}
+                      className="px-2 py-1 text-[10px] rounded-lg hover:bg-white/10 text-amber-300 font-bold cursor-pointer"
+                    >
+                      100%
+                    </button>
+                  </div>
+
+                  <a
+                    href={previewImage}
+                    download="payment-receipt-admin-verification.jpg"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Download Receipt"
+                    className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white cursor-pointer"
+                  >
+                    <Download size={15} />
+                  </a>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPreviewImage(null);
+                      setReceiptZoomLevel(1);
+                    }}
+                    className="p-2 rounded-xl bg-white/10 hover:bg-rose-500/20 text-neutral-400 hover:text-rose-300 cursor-pointer transition-colors"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Notice Banner */}
+              <div className="bg-amber-400/10 border border-amber-400/20 px-3 py-1.5 rounded-xl my-2.5 text-[10px] text-amber-200 flex items-center justify-between shrink-0">
+                <span>🔍 रसिदमा कारोबार रकम, मिति र बैंक/वालेट खाता प्रस्ट रुजु गरेर मात्र स्वीकृत गर्नुहोस्।</span>
+                <span className="font-mono text-neutral-400 hidden sm:inline">Scroll to Pan</span>
+              </div>
+
+              {/* Scrollable & Zoomable Image Area */}
+              <div className="flex-1 overflow-auto p-2 bg-black/80 rounded-2xl border border-white/10 flex items-center justify-center min-h-[320px]">
+                <div
+                  className="transition-transform duration-200 ease-out origin-center"
+                  style={{ transform: `scale(${receiptZoomLevel})` }}
                 >
-                  <X size={15} />
-                </button>
+                  <img
+                    src={previewImage}
+                    alt="Payment Receipt Proof"
+                    className="max-h-[60vh] max-w-full rounded-xl object-contain shadow-2xl border border-white/20"
+                  />
+                </div>
               </div>
 
-              <div className="max-h-[70vh] overflow-auto rounded-xl bg-black flex items-center justify-center p-2">
-                <img
-                  src={previewImage}
-                  alt="Payment Receipt"
-                  className="max-w-full max-h-[65vh] object-contain rounded-lg"
-                />
-              </div>
-
-              <div className="mt-3 text-center">
+              {/* Footer */}
+              <div className="pt-3 border-t border-white/10 flex items-center justify-end shrink-0">
                 <button
                   type="button"
-                  onClick={() => setPreviewImage(null)}
+                  onClick={() => {
+                    setPreviewImage(null);
+                    setReceiptZoomLevel(1);
+                  }}
                   className="py-2 px-6 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs cursor-pointer"
                 >
                   बन्द गर्नुहोस्
